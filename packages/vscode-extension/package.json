@@ -1,0 +1,96 @@
+{
+  "name": "claude-lens-vscode",
+  "displayName": "Claude Lens",
+  "description": "Visual web development companion for Claude Code",
+  "version": "0.0.1",
+  "publisher": "melon-hub",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "claude",
+    "ai",
+    "browser",
+    "inspector",
+    "web development"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeLens.open",
+        "title": "Claude Lens: Open Browser Panel"
+      },
+      {
+        "command": "claudeLens.connect",
+        "title": "Claude Lens: Connect to Browser"
+      },
+      {
+        "command": "claudeLens.disconnect",
+        "title": "Claude Lens: Disconnect"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claudeLens",
+          "title": "Claude Lens",
+          "icon": "$(browser)"
+        }
+      ]
+    },
+    "views": {
+      "claudeLens": [
+        {
+          "type": "webview",
+          "id": "claudeLens.browserView",
+          "name": "Browser"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Claude Lens",
+      "properties": {
+        "claudeLens.cdpPort": {
+          "type": "number",
+          "default": 9222,
+          "description": "Chrome DevTools Protocol port"
+        },
+        "claudeLens.autoLaunchBrowser": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically launch Chrome when opening Claude Lens"
+        },
+        "claudeLens.autoStreamConsole": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically stream console errors to Claude"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "dev": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --platform=node --external:vscode --watch",
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --platform=node --external:vscode --minify",
+    "build:webview": "esbuild src/webview/main.ts --bundle --outfile=dist/webview.js --platform=browser",
+    "package": "pnpm run build && pnpm run build:webview && vsce package",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.vsix"
+  },
+  "dependencies": {
+    "@claude-lens/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.3",
+    "@vscode/vsce": "^2.22.0"
+  },
+  "license": "MIT"
+}

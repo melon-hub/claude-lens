@@ -1,0 +1,29 @@
+{
+  "name": "@claude-lens/mcp-server",
+  "version": "0.0.1",
+  "description": "MCP server for Claude Lens - provides tools for element inspection and highlighting",
+  "main": "./dist/index.js",
+  "bin": {
+    "claude-lens-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc && chmod +x dist/index.js",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@claude-lens/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT"
+}

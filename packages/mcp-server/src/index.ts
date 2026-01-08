@@ -4,6 +4,8 @@
  *
  * Provides tools for element inspection and highlighting
  * to Claude Code via the Model Context Protocol.
+ *
+ * Communicates with the VS Code extension via local HTTP bridge.
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -13,6 +15,10 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { BridgeClient, redactSecrets, isAllowedUrl } from '@claude-lens/core';
+
+// Bridge client to communicate with VS Code extension
+const bridge = new BridgeClient();
 
 // Tool schemas
 const InspectElementSchema = z.object({
@@ -57,7 +63,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: 'claude_lens/inspect_element',
-        description: 'Inspect a DOM element and get its properties, styles, and screenshot',
+        description:
+          'Inspect a DOM element and get its properties, styles, and bounding box. Use this after the user clicks an element in Claude Lens.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -70,7 +77,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'claude_lens/highlight_element',
-        description: 'Highlight an element in the browser to show the user',
+        description:
+          'Highlight an element in the browser to show the user. Use this to visually indicate which element you are referring to.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -84,7 +92,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             duration: {
               type: 'number',
-              description: 'Duration in ms (0 = permanent)',
+              description: 'Duration in ms (0 = permanent, default: 3000)',
             },
           },
           required: ['selector'],
@@ -92,7 +100,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'claude_lens/navigate',
-        description: 'Navigate the browser to a URL',
+        description: 'Navigate the browser to a URL. Only localhost URLs are allowed for security.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -106,25 +114,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'claude_lens/get_console',
-        description: 'Get recent console messages from the browser',
+        description:
+          'Get recent console messages from the browser. Useful for debugging errors and warnings.',
         inputSchema: {
           type: 'object',
           properties: {
             level: {
               type: 'string',
               enum: ['all', 'error', 'warn', 'log'],
-              description: 'Filter by log level',
+              description: 'Filter by log level (default: error)',
             },
             limit: {
               type: 'number',
-              description: 'Maximum number of messages to return',
+              description: 'Maximum number of messages to return (default: 20)',
             },
           },
         },
       },
       {
         name: 'claude_lens/screenshot',
-        description: 'Take a screenshot of the page or a specific element',
+        description:
+          'Take a screenshot of the page or a specific element. Returns base64-encoded PNG.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -144,31 +154,80 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
+    // Check if bridge is connected
+    const connected = await bridge.isConnected();
+    if (!connected) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'Claude Lens is not connected. Please open the Claude Lens panel in VS Code (Command Palette > "Claude Lens: Open Browser Panel") and navigate to a localhost URL first.',
+          },
+        ],
+        isError: true,
+      };
+    }
+
     switch (name) {
       case 'claude_lens/inspect_element': {
-        InspectElementSchema.parse(args); // Validates input
-        // TODO: Connect to browser adapter and inspect
+        const { selector } = InspectElementSchema.parse(args);
+        const element = await bridge.inspectElement(selector);
+
+        if (!element) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: selector
+                  ? `Element not found: ${selector}`
+                  : 'No element has been clicked. Ctrl+Click an element in Claude Lens first.',
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Format element info nicely
+        const info = `## Inspected Element
+
+**Selector:** \`${element.selector}\`
+**Tag:** \`<${element.tagName}${element.id ? ` id="${element.id}"` : ''}${element.classes.length ? ` class="${element.classes.join(' ')}"` : ''}>\`
+
+### Computed Styles
+| Property | Value |
+|----------|-------|
+| display | ${element.computedStyles.display} |
+| position | ${element.computedStyles.position} |
+| width | ${element.computedStyles.width} |
+| height | ${element.computedStyles.height} |
+| margin | ${element.computedStyles.margin} |
+| padding | ${element.computedStyles.padding} |
+| color | ${element.computedStyles.color} |
+| background | ${element.computedStyles.backgroundColor} |
+| font-size | ${element.computedStyles.fontSize} |
+
+### Bounding Box
+- Position: (${element.boundingBox.x}, ${element.boundingBox.y})
+- Size: ${element.boundingBox.width} x ${element.boundingBox.height}
+
+### Attributes
+${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') || 'None'}
+`;
+
         return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                status: 'not_connected',
-                message: 'Browser not connected. Open Claude Lens panel in VS Code first.',
-              }),
-            },
-          ],
+          content: [{ type: 'text', text: info }],
         };
       }
 
       case 'claude_lens/highlight_element': {
-        HighlightElementSchema.parse(args); // Validates input
-        // TODO: Highlight element
+        const { selector, color, duration } = HighlightElementSchema.parse(args);
+        await bridge.highlight(selector, { color, duration: duration ?? 3000 });
+
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify({ success: false, message: 'Not connected' }),
+              text: `Highlighted element: ${selector}`,
             },
           ],
         };
@@ -176,45 +235,73 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'claude_lens/navigate': {
         const { url } = NavigateSchema.parse(args);
-        // Validate localhost
-        if (!url.match(/^https?:\/\/(localhost|127\.0\.0\.1)/)) {
+
+        // Validate URL is localhost
+        if (!isAllowedUrl(url)) {
           return {
-            content: [{ type: 'text', text: 'Error: Only localhost URLs are allowed' }],
+            content: [
+              {
+                type: 'text',
+                text: 'Error: Only localhost URLs are allowed for security. Use http://localhost:PORT or http://127.0.0.1:PORT',
+              },
+            ],
             isError: true,
           };
         }
-        // TODO: Navigate
+
+        const result = await bridge.navigate(url);
+
+        if (!result.success) {
+          return {
+            content: [{ type: 'text', text: `Navigation failed: ${result.error}` }],
+            isError: true,
+          };
+        }
+
         return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({ success: false, message: 'Not connected' }),
-            },
-          ],
+          content: [{ type: 'text', text: `Navigated to: ${url}` }],
         };
       }
 
       case 'claude_lens/get_console': {
-        GetConsoleSchema.parse(args); // Validates input
-        // TODO: Get console logs
+        const { level, limit } = GetConsoleSchema.parse(args);
+        const messages = await bridge.getConsoleLogs(level, limit);
+
+        if (messages.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No ${level === 'all' ? '' : level + ' '}console messages found.`,
+              },
+            ],
+          };
+        }
+
+        // Format console messages, redacting secrets
+        const formatted = messages
+          .map((msg) => {
+            const redacted = redactSecrets(msg.text);
+            const location = msg.source ? ` (${msg.source}${msg.line ? `:${msg.line}` : ''})` : '';
+            return `[${msg.level.toUpperCase()}]${location} ${redacted.text}`;
+          })
+          .join('\n');
+
         return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({ messages: [], hasMore: false }),
-            },
-          ],
+          content: [{ type: 'text', text: `## Console Messages\n\n\`\`\`\n${formatted}\n\`\`\`` }],
         };
       }
 
       case 'claude_lens/screenshot': {
-        ScreenshotSchema.parse(args); // Validates input
-        // TODO: Take screenshot
+        const { selector } = ScreenshotSchema.parse(args);
+        const imageData = await bridge.screenshot(selector);
+
         return {
           content: [
             {
-              type: 'text',
-              text: JSON.stringify({ success: false, message: 'Not connected' }),
+              type: 'image',
+              data: imageData,
+              mimeType: 'image/png',
             },
           ],
         };

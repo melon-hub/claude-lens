@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "claude-lens": {
+      "command": "node",
+      "args": ["packages/mcp-server/dist/index.js"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}

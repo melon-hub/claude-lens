@@ -12,8 +12,17 @@ import * as os from 'os';
 export interface DevServerState {
   process: pty.IPty;
   port: number;
+  actualPort: number | null; // The port detected from server output
   ready: boolean;
   output: string[];
+  errors: DevServerError[];
+}
+
+export interface DevServerError {
+  type: 'missing-module' | 'build-error' | 'permission' | 'port-conflict' | 'unknown';
+  message: string;
+  suggestion: string;
+  raw: string;
 }
 
 export class DevServerManager {
@@ -21,6 +30,7 @@ export class DevServerManager {
   private onOutputCallback: ((data: string) => void) | null = null;
   private onReadyCallback: (() => void) | null = null;
   private onExitCallback: ((code: number) => void) | null = null;
+  private onErrorCallback: ((error: DevServerError) => void) | null = null;
 
   /**
    * Start a dev server in the given project directory
@@ -29,6 +39,17 @@ export class DevServerManager {
     // Stop any existing server
     if (this.server) {
       await this.stop();
+    }
+
+    // Check if port is already in use BEFORE starting
+    // This prevents the race condition where we think our server started
+    // but it's actually another process (like Claude Lens's own dev server)
+    if (await this.isPortOpen(port)) {
+      throw new Error(
+        `Port ${port} is already in use. ` +
+        `Another dev server or Claude Lens development instance may be running. ` +
+        `Please close it or use a different port.`
+      );
     }
 
     const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
@@ -47,8 +68,10 @@ export class DevServerManager {
     this.server = {
       process: ptyProcess,
       port,
+      actualPort: null,
       ready: false,
       output: [],
+      errors: [],
     };
 
     // Handle output
@@ -58,6 +81,22 @@ export class DevServerManager {
         // Keep only last 1000 lines
         if (this.server.output.length > 1000) {
           this.server.output.shift();
+        }
+
+        // Try to detect actual port from output
+        if (!this.server.actualPort) {
+          const detectedPort = this.detectPortFromOutput(data);
+          if (detectedPort) {
+            this.server.actualPort = detectedPort;
+            console.log('Detected dev server port from output:', detectedPort);
+          }
+        }
+
+        // Detect errors and provide actionable suggestions
+        const error = this.detectError(data);
+        if (error) {
+          this.server.errors.push(error);
+          this.onErrorCallback?.(error);
         }
       }
 
@@ -104,19 +143,155 @@ export class DevServerManager {
   }
 
   /**
-   * Wait for a port to become available
+   * Detect the actual port from server output
+   * Matches URL patterns like "http://localhost:5173", "Local: http://localhost:5174/"
+   * Must be careful not to match timestamps or other numbers
    */
-  private async waitForPort(port: number, timeout: number): Promise<void> {
+  private detectPortFromOutput(output: string): number | null {
+    // Specific patterns for dev server URL announcements
+    // These must be URL-like to avoid matching timestamps/error codes
+    const patterns = [
+      /https?:\/\/localhost:(\d+)/i,           // http://localhost:3000
+      /https?:\/\/127\.0\.0\.1:(\d+)/i,        // http://127.0.0.1:5173
+      /https?:\/\/0\.0\.0\.0:(\d+)/i,          // http://0.0.0.0:3000
+      /Local:\s+https?:\/\/[^:]+:(\d+)/i,      // Local:   http://localhost:5173
+      /listening\s+(?:on\s+)?(?:port\s+)?(\d+)/i, // listening on port 3000
+      /server\s+(?:running|started)\s+(?:on|at)\s+(?:port\s+)?(\d+)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = output.match(pattern);
+      if (match && match[1]) {
+        const port = parseInt(match[1], 10);
+        // Sanity check: port should be in common dev server range
+        if (port >= 3000 && port <= 9999) {
+          return port;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Detect errors in server output and provide actionable suggestions
+   */
+  private detectError(output: string): DevServerError | null {
+    // Missing module (common cross-platform issue)
+    const missingModuleMatch = output.match(/Cannot find module ['"]([^'"]+)['"]/);
+    if (missingModuleMatch) {
+      const moduleName = missingModuleMatch[1];
+      const isNative = moduleName.includes('@rollup/') || moduleName.includes('@esbuild/');
+
+      return {
+        type: 'missing-module',
+        message: `Cannot find module: ${moduleName}`,
+        suggestion: isNative
+          ? 'Native module missing. Run: rm -rf node_modules package-lock.json && npm install'
+          : `Module not installed. Run: npm install ${moduleName}`,
+        raw: output,
+      };
+    }
+
+    // ENOENT errors (file/command not found)
+    const enoentMatch = output.match(/ENOENT[:\s]+.*?['"]([^'"]+)['"]/);
+    if (enoentMatch) {
+      return {
+        type: 'missing-module',
+        message: `File or directory not found: ${enoentMatch[1]}`,
+        suggestion: 'Check if the file exists or run npm install',
+        raw: output,
+      };
+    }
+
+    // Port already in use
+    if (output.includes('EADDRINUSE') || output.includes('address already in use')) {
+      const portMatch = output.match(/port\s*(\d+)/i) || output.match(/:(\d+)/);
+      const port = portMatch ? portMatch[1] : 'unknown';
+
+      return {
+        type: 'port-conflict',
+        message: `Port ${port} is already in use`,
+        suggestion: 'Close the other application using this port or use a different port',
+        raw: output,
+      };
+    }
+
+    // Permission denied
+    if (output.includes('EACCES') || output.includes('permission denied')) {
+      return {
+        type: 'permission',
+        message: 'Permission denied',
+        suggestion: 'Check file permissions or try running with appropriate privileges',
+        raw: output,
+      };
+    }
+
+    // TypeScript/Build errors
+    if (output.includes('error TS') || output.match(/error:.*TypeScript/i)) {
+      return {
+        type: 'build-error',
+        message: 'TypeScript compilation error',
+        suggestion: 'Fix the TypeScript errors in your code',
+        raw: output,
+      };
+    }
+
+    // ESLint/Linting errors that block build
+    if (output.includes('ESLint') && output.includes('error')) {
+      return {
+        type: 'build-error',
+        message: 'ESLint errors found',
+        suggestion: 'Fix the linting errors or configure ESLint to warn instead of error',
+        raw: output,
+      };
+    }
+
+    // npm ERR!
+    if (output.includes('npm ERR!')) {
+      return {
+        type: 'unknown',
+        message: 'npm error occurred',
+        suggestion: 'Check the error message above. Try: rm -rf node_modules && npm install',
+        raw: output,
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Wait for the server to become available
+   * First tries to detect the actual port from output, then checks if it's open
+   */
+  private async waitForPort(suggestedPort: number, timeout: number): Promise<void> {
     const start = Date.now();
 
     while (Date.now() - start < timeout) {
-      if (await this.isPortOpen(port)) {
+      // Check if we detected the actual port from output
+      const portToCheck = this.server?.actualPort || suggestedPort;
+
+      if (await this.isPortOpen(portToCheck)) {
+        // Update actualPort if we found it via connection
+        if (this.server && !this.server.actualPort) {
+          this.server.actualPort = portToCheck;
+        }
         return;
       }
+
+      // If we detected a port from output but it's not the suggested one,
+      // try that port directly
+      if (this.server?.actualPort && this.server.actualPort !== suggestedPort) {
+        if (await this.isPortOpen(this.server.actualPort)) {
+          return;
+        }
+      }
+
       await new Promise((r) => setTimeout(r, 500));
     }
 
-    throw new Error(`Server did not start on port ${port} within ${timeout}ms`);
+    const portTried = this.server?.actualPort || suggestedPort;
+    throw new Error(`Server did not start on port ${portTried} within ${timeout}ms`);
   }
 
   /**
@@ -186,6 +361,13 @@ export class DevServerManager {
   }
 
   /**
+   * Set callback for when an error is detected
+   */
+  setOnError(callback: (error: DevServerError) => void): void {
+    this.onErrorCallback = callback;
+  }
+
+  /**
    * Check if server is running and ready
    */
   isRunning(): boolean {
@@ -193,10 +375,17 @@ export class DevServerManager {
   }
 
   /**
-   * Get the server port
+   * Get the suggested server port
    */
   getPort(): number | null {
     return this.server?.port ?? null;
+  }
+
+  /**
+   * Get the actual port the server is running on (detected from output)
+   */
+  getActualPort(): number | null {
+    return this.server?.actualPort ?? this.server?.port ?? null;
   }
 
   /**
@@ -204,5 +393,19 @@ export class DevServerManager {
    */
   getOutput(): string[] {
     return this.server?.output ?? [];
+  }
+
+  /**
+   * Get detected errors
+   */
+  getErrors(): DevServerError[] {
+    return this.server?.errors ?? [];
+  }
+
+  /**
+   * Check if any errors were detected
+   */
+  hasErrors(): boolean {
+    return (this.server?.errors.length ?? 0) > 0;
   }
 }

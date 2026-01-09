@@ -14,7 +14,7 @@ import { PtyManager } from './pty-manager';
 import { startMCPServer, stopMCPServer, setBrowserView, setConsoleBuffer } from './mcp-server';
 import { BridgeServer } from '@claude-lens/core';
 import { createBridgeHandler } from './bridge-handler';
-import { analyzeProject, ProjectInfo, detectPackageManager } from './project-manager';
+import { analyzeProject, ProjectInfo, detectPackageManager, checkDependencyHealth, DependencyHealth } from './project-manager';
 import { DevServerManager } from './dev-server';
 import { StaticServer } from './static-server';
 
@@ -186,7 +186,7 @@ async function openProject(projectPath: string): Promise<void> {
 
 /**
  * Inject Claude Lens context into a project directory
- * Creates .claude/settings.local.md with instructions for the embedded Claude instance
+ * Creates CLAUDE.md in project root with instructions for the embedded Claude instance
  */
 async function injectClaudeLensContext(projectPath: string): Promise<void> {
   const claudeDir = path.join(projectPath, '.claude');
@@ -196,70 +196,74 @@ async function injectClaudeLensContext(projectPath: string): Promise<void> {
     fs.mkdirSync(claudeDir, { recursive: true });
   }
 
-  // Create settings file with Claude Lens integration instructions
-  const claudeLensInstructions = `# Claude Lens Integration
+  // Create CLAUDE.md in project root (highest precedence for project instructions)
+  const claudeMdInstructions = `# Claude Lens Desktop Environment
 
-You are running inside **Claude Lens Desktop** with an embedded browser.
+**IMPORTANT: You are running inside Claude Lens Desktop, NOT a standard terminal.**
 
-## CRITICAL RULES
+## Browser Automation - CRITICAL
 
-1. **DO NOT use Playwright tools** - They won't work here
-2. **Use ONLY standard CSS selectors** - No Playwright pseudo-selectors
+**DO NOT use Playwright, browser_snapshot, or any Playwright-based tools.**
+They will NOT work in this environment.
 
-## Available MCP Tools
+**USE ONLY the \`claude_lens/*\` MCP tools:**
 
-- \`claude_lens/screenshot\` - Take a screenshot (do this FIRST to see the page)
-- \`claude_lens/click\` - Click an element
-- \`claude_lens/type\` - Type text into an input
-- \`claude_lens/inspect_element\` - Get element details
-- \`claude_lens/highlight_element\` - Highlight an element
-- \`claude_lens/get_console\` - Get console logs
-- \`claude_lens/reload\` - Reload after code changes
-- \`claude_lens/navigate\` - Go to a URL
-- \`claude_lens/wait_for\` - Wait for element/text
+| Tool | Purpose |
+|------|---------|
+| \`claude_lens/screenshot\` | Take a screenshot (do this FIRST to see the page) |
+| \`claude_lens/click\` | Click an element using CSS selector |
+| \`claude_lens/type\` | Type text into an input |
+| \`claude_lens/inspect_element\` | Get element details |
+| \`claude_lens/highlight_element\` | Highlight an element |
+| \`claude_lens/get_console\` | Get browser console logs |
+| \`claude_lens/reload\` | Reload page after code changes |
+| \`claude_lens/navigate\` | Navigate to a URL |
 
-## SELECTOR SYNTAX - IMPORTANT!
+## CSS Selectors ONLY
 
-**These are STANDARD CSS selectors, NOT Playwright selectors.**
+These tools use **standard CSS selectors**, not Playwright selectors.
 
-### WRONG (Playwright-only, will fail):
-- \`:has-text("Submit")\` - NOT valid CSS
-- \`:text("Click me")\` - NOT valid CSS
-- \`button:has-text("Edit")\` - NOT valid CSS
+**WRONG (will fail):**
+- \`:has-text("Submit")\`
+- \`:text("Click")\`
+- \`button:has-text("Edit")\`
 
-### CORRECT (Standard CSS):
-- \`button\` - Tag name
-- \`#submit-btn\` - ID
-- \`.btn-primary\` - Class
-- \`[data-testid="submit"]\` - Data attribute
-- \`button[type="submit"]\` - Attribute selector
-- \`[aria-label="Edit"]\` - Aria attribute
-- \`button.edit-btn\` - Tag + class
-- \`form button\` - Descendant
-- \`input[placeholder*="search"]\` - Partial attribute match
+**CORRECT:**
+- \`#submit-btn\` (ID)
+- \`.btn-primary\` (class)
+- \`[data-testid="submit"]\` (attribute)
+- \`button[type="submit"]\` (tag + attribute)
 
-### Finding the Right Selector
+## Workflow
 
-1. **Take a screenshot first** to see what's on screen
-2. **Use inspect_element** on a general selector to see attributes
-3. **Look for**: id, data-testid, aria-label, unique classes
-4. **Combine selectors** if needed: \`nav button.active\`
+1. \`claude_lens/screenshot\` → See the page
+2. Make code changes
+3. \`claude_lens/reload\` → See updates
+4. \`claude_lens/screenshot\` → Verify
 
-## Efficient Workflow
+## Project Location
 
-1. \`screenshot\` → See the current state
-2. \`click\` → Use a STANDARD CSS selector
-3. \`screenshot\` → Verify the action worked
-4. If click fails, try: id > data-* attribute > aria-label > class
-
-## Project Files
-
-Source files are in: \`${projectPath}\`
-After editing code, use \`claude_lens/reload\` to see changes.
+Source files: \`${projectPath}\`
 `;
 
-  const settingsPath = path.join(claudeDir, 'settings.local.md');
-  fs.writeFileSync(settingsPath, claudeLensInstructions);
+  // Write to CLAUDE.md in project root for highest visibility
+  const claudeMdPath = path.join(projectPath, 'CLAUDE.md');
+
+  // Check if CLAUDE.md already exists - if so, append our section
+  let finalContent = claudeMdInstructions;
+  if (fs.existsSync(claudeMdPath)) {
+    const existing = fs.readFileSync(claudeMdPath, 'utf-8');
+    // Only append if our section isn't already there
+    if (!existing.includes('Claude Lens Desktop Environment')) {
+      finalContent = existing + '\n\n---\n\n' + claudeMdInstructions;
+    } else {
+      // Already injected, don't modify
+      console.log('Claude Lens context already in CLAUDE.md');
+      finalContent = existing;
+    }
+  }
+  fs.writeFileSync(claudeMdPath, finalContent);
+  console.log('Injected Claude Lens context into:', claudeMdPath);
 
   // Create .mcp.json to enable MCP tools in Claude Code
   // Use the local mcp-server from claude-lens monorepo
@@ -298,7 +302,58 @@ After editing code, use \`claude_lens/reload\` to see changes.
     console.log('Created permissions config:', settingsJsonPath);
   }
 
-  console.log('Injected Claude Lens context into project:', settingsPath);
+}
+
+/**
+ * Run npm/yarn/pnpm install and wait for completion
+ */
+async function runInstallCommand(projectPath: string, command: string): Promise<{ success: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const pty = require('node-pty');
+    const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+
+    const installPty = pty.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols: 120,
+      rows: 30,
+      cwd: projectPath,
+      env: { ...process.env, FORCE_COLOR: '1' },
+    });
+
+    let output = '';
+    let hasError = false;
+
+    installPty.onData((data: string) => {
+      output += data;
+      mainWindow?.webContents.send('server:output', data);
+
+      // Check for common error patterns
+      if (data.includes('ERR!') || data.includes('error:') || data.includes('ENOENT')) {
+        hasError = true;
+      }
+    });
+
+    installPty.onExit(({ exitCode }: { exitCode: number }) => {
+      if (exitCode === 0 && !hasError) {
+        resolve({ success: true });
+      } else {
+        // Extract last error message
+        const lines = output.split('\n');
+        const errorLines = lines.filter((l) => l.includes('ERR!') || l.includes('error'));
+        const errorMsg = errorLines.slice(-5).join('\n') || `Exit code: ${exitCode}`;
+        resolve({ success: false, error: errorMsg });
+      }
+    });
+
+    // Run the install command
+    installPty.write(`${command}\r`);
+
+    // Set a timeout (5 minutes for npm install)
+    setTimeout(() => {
+      installPty.kill();
+      resolve({ success: false, error: 'Install timed out after 5 minutes' });
+    }, 300000);
+  });
 }
 
 /**
@@ -310,6 +365,55 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
   }
 
   try {
+    // Check dependency health for Node projects using dev server
+    if (useDevServer && currentProject.type === 'node') {
+      const health = await checkDependencyHealth(currentProject.path);
+
+      if (health.status !== 'healthy') {
+        console.log(`[Health Check] ${health.status}: ${health.message}`);
+
+        // Show warning dialog and ask if user wants to continue or fix
+        const result = await dialog.showMessageBox(mainWindow!, {
+          type: health.status === 'missing' ? 'error' : 'warning',
+          title: 'Dependency Issue Detected',
+          message: health.message,
+          detail: health.suggestion
+            ? `${health.suggestion}\n\nThis may cause the dev server to fail.`
+            : 'The dev server may fail to start.',
+          buttons: health.status === 'missing'
+            ? ['Run npm install', 'Cancel']
+            : ['Continue Anyway', 'Run npm install', 'Cancel'],
+          defaultId: health.status === 'missing' ? 0 : 1,
+          cancelId: health.status === 'missing' ? 1 : 2,
+        });
+
+        const buttonIndex = result.response;
+        const runInstall = health.status === 'missing' ? buttonIndex === 0 : buttonIndex === 1;
+        const cancel = health.status === 'missing' ? buttonIndex === 1 : buttonIndex === 2;
+
+        if (cancel) {
+          return { success: false, error: 'Cancelled by user' };
+        }
+
+        if (runInstall) {
+          // Run npm install in a temporary PTY and wait for it
+          const pm = detectPackageManager(currentProject.path);
+          const installCmd = pm === 'yarn' ? 'yarn install' : pm === 'pnpm' ? 'pnpm install' : pm === 'bun' ? 'bun install' : 'npm install';
+
+          mainWindow?.webContents.send('server:output', `\n[Claude Lens] Running ${installCmd}...\n`);
+
+          const installResult = await runInstallCommand(currentProject.path, installCmd);
+
+          if (!installResult.success) {
+            dialog.showErrorBox('Install Failed', `Failed to install dependencies:\n\n${installResult.error}`);
+            return { success: false, error: installResult.error };
+          }
+
+          mainWindow?.webContents.send('server:output', `\n[Claude Lens] Dependencies installed successfully!\n`);
+        }
+      }
+    }
+
     const port = currentProject.suggestedPort || 3000;
     let url: string;
 
@@ -325,22 +429,39 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
 
     if (useDevServer && currentProject.devCommand) {
       // Start dev server
-      devServerManager = new DevServerManager();
+      // Use local variable to avoid race conditions in callbacks
+      const serverManager = new DevServerManager();
+      devServerManager = serverManager;
 
-      devServerManager.setOnOutput((data) => {
+      serverManager.setOnOutput((data) => {
+        // Log dev server output to main process console for debugging
+        console.log('[DevServer]', data.replace(/\n/g, '\\n'));
         mainWindow?.webContents.send('server:output', data);
       });
 
-      devServerManager.setOnReady(() => {
-        mainWindow?.webContents.send('server:ready', { port });
+      serverManager.setOnReady(() => {
+        const actualPort = serverManager.getActualPort() || port;
+        mainWindow?.webContents.send('server:ready', { port: actualPort });
       });
 
-      devServerManager.setOnExit((code) => {
+      serverManager.setOnExit((code) => {
         mainWindow?.webContents.send('server:exit', { code });
       });
 
-      await devServerManager.start(currentProject.path, currentProject.devCommand, port);
-      url = `http://localhost:${port}`;
+      serverManager.setOnError((error) => {
+        console.log(`[DevServer Error] ${error.type}: ${error.message}`);
+        mainWindow?.webContents.send('server:error', {
+          type: error.type,
+          message: error.message,
+          suggestion: error.suggestion,
+        });
+      });
+
+      await serverManager.start(currentProject.path, currentProject.devCommand, port);
+      // Use the actual detected port (may differ from suggested port)
+      const actualPort = serverManager.getActualPort() || port;
+      url = `http://localhost:${actualPort}`;
+      console.log(`Dev server started on port ${actualPort} (suggested: ${port})`);
     } else {
       // Use built-in static server
       staticServer = new StaticServer();
@@ -374,12 +495,14 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
     await injectClaudeLensContext(currentProject.path);
 
     // Restart Claude with project context
+    // Use local variable to avoid race conditions
     if (ptyManager) {
       ptyManager.dispose();
     }
-    ptyManager = new PtyManager();
+    const newPtyManager = new PtyManager();
+    ptyManager = newPtyManager;
     setupPtyForwarding();
-    await ptyManager.start({ cwd: currentProject.path });
+    await newPtyManager.start({ cwd: currentProject.path });
 
     // Notify renderer that Claude started automatically
     mainWindow?.webContents.send('pty:autoStarted');
@@ -388,6 +511,49 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     console.error('Failed to start project:', errorMsg);
+
+    // Check for specific error suggestions from DevServerManager
+    let suggestion = '';
+    if (devServerManager?.hasErrors()) {
+      const errors = devServerManager.getErrors();
+      const lastError = errors[errors.length - 1];
+      if (lastError) {
+        suggestion = `\n\nSuggestion: ${lastError.suggestion}`;
+      }
+    }
+
+    // Check if project has HTML files for static fallback
+    const hasHtmlFiles = currentProject &&
+      (fs.existsSync(path.join(currentProject.path, 'index.html')) ||
+       fs.existsSync(path.join(currentProject.path, 'public', 'index.html')) ||
+       fs.existsSync(path.join(currentProject.path, 'dist', 'index.html')));
+
+    // Offer fallback to static server if applicable
+    if (hasHtmlFiles && useDevServer) {
+      const result = await dialog.showMessageBox(mainWindow!, {
+        type: 'error',
+        title: 'Dev Server Failed',
+        message: 'Could not start the development server',
+        detail: `${errorMsg}${suggestion}\n\nWould you like to use the built-in static server instead? ` +
+          `This will serve files directly but won't have hot reload.`,
+        buttons: ['Use Static Server', 'Cancel'],
+        defaultId: 0,
+      });
+
+      if (result.response === 0) {
+        // Try starting with static server
+        return startProject(false);
+      }
+    } else {
+      // Show error dialog without fallback option
+      dialog.showErrorBox(
+        'Failed to Start Project',
+        `Could not start the development server:\n\n${errorMsg}${suggestion}\n\n` +
+        `Tip: If running Claude Lens in development mode, the Vite dev server uses port 5173. ` +
+        `Try closing other dev servers or wait a moment and try again.`
+      );
+    }
+
     return { success: false, error: errorMsg };
   }
 }
@@ -1109,7 +1275,12 @@ app.whenReady().then(async () => {
     const port = await startMCPServer();
     console.log(`MCP server started on port ${port}`);
   } catch (err) {
-    console.error('Failed to start MCP server:', err);
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error('Failed to start MCP server:', errorMsg);
+    dialog.showErrorBox(
+      'MCP Server Error',
+      `Failed to start MCP server on port 3333.\n\n${errorMsg}\n\nAnother instance may be running.`
+    );
   }
 
   // Start Bridge server for MCP server communication (port 9333)
@@ -1123,7 +1294,12 @@ app.whenReady().then(async () => {
     await bridgeServer.start();
     console.log('Bridge server started on port 9333');
   } catch (err) {
-    console.error('Failed to start Bridge server:', err);
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error('Failed to start Bridge server:', errorMsg);
+    dialog.showErrorBox(
+      'Bridge Server Error',
+      `Failed to start Bridge server on port 9333.\n\n${errorMsg}\n\nAnother instance may be running.`
+    );
   }
 
   app.on('activate', () => {

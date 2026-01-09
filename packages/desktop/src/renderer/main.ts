@@ -10,14 +10,37 @@ import type { ElementInfo, ProjectInfo } from './types';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-// @ts-expect-error - xterm-webfont has no type definitions
-import * as XtermWebfont from 'xterm-webfont';
 import 'xterm/css/xterm.css';
 
-// Extend Terminal type to include loadWebfontAndOpen from xterm-webfont addon
-declare module 'xterm' {
-  interface Terminal {
-    loadWebfontAndOpen(element: HTMLElement): Promise<Terminal>;
+/**
+ * Load terminal fonts using native FontFace API
+ * Ensures fonts are ready before xterm renders to canvas
+ */
+async function loadTerminalFonts(fontFamily: string): Promise<void> {
+  // Extract primary font name from the font stack
+  const primaryFont = (fontFamily.split(',')[0] ?? fontFamily).trim().replace(/['"]/g, '');
+
+  // Use document.fonts API to check/load fonts
+  if (document.fonts) {
+    try {
+      // Check if the font is already loaded
+      const fontLoaded = document.fonts.check(`13px "${primaryFont}"`);
+      if (fontLoaded) {
+        console.log('Font already loaded:', primaryFont);
+        return;
+      }
+
+      // Wait for fonts to be ready (with timeout)
+      await Promise.race([
+        document.fonts.ready,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Font load timeout')), 3000))
+      ]);
+
+      console.log('Fonts ready via document.fonts');
+    } catch (err) {
+      console.warn('Font loading warning:', err);
+      // Continue anyway - fallback fonts will work
+    }
   }
 }
 
@@ -87,11 +110,9 @@ const terminal = new Terminal({
 
 const fitAddon = new FitAddon();
 const unicode11Addon = new Unicode11Addon();
-const webfontAddon = new XtermWebfont();
 terminal.loadAddon(fitAddon);
 terminal.loadAddon(new WebLinksAddon());
 terminal.loadAddon(unicode11Addon);
-terminal.loadAddon(webfontAddon);
 terminal.unicode.activeVersion = '11';
 
 // State
@@ -232,15 +253,14 @@ async function init() {
     versionEl.textContent = `v${window.claudeLens.version}`;
   }
 
-  // Use webfont addon to ensure fonts are loaded before opening terminal
+  // Wait for terminal fonts to load before opening
   // This prevents rendering issues with custom fonts in canvas-based xterm
-  try {
-    await terminal.loadWebfontAndOpen(terminalEl);
-    console.log('Terminal opened with webfont:', terminal.options.fontFamily);
-  } catch (err) {
-    console.warn('Webfont loading failed, opening terminal with fallback:', err);
-    terminal.open(terminalEl);
-  }
+  const fontFamily = terminal.options.fontFamily || 'monospace';
+  await loadTerminalFonts(fontFamily);
+
+  // Now open terminal with fonts ready
+  terminal.open(terminalEl);
+  console.log('Terminal opened with fonts:', fontFamily);
   fitAddon.fit();
 
   // PTY data handler

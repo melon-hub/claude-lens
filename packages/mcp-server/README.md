@@ -1,10 +1,10 @@
 # @claude-lens/mcp-server
 
-MCP server providing browser inspection tools to Claude Code.
+MCP server providing 25+ Playwright-powered browser automation tools to Claude Code.
 
 ## Overview
 
-This standalone MCP server connects to the Claude Lens bridge and exposes browser inspection tools. It runs as a separate process and communicates via HTTP with the Claude Lens desktop app or VS Code extension.
+This standalone MCP server connects to the Claude Lens bridge and exposes browser automation tools. It runs as a separate process and communicates via HTTP with the Claude Lens desktop app or VS Code extension. Playwright is connected via CDP to Electron's embedded BrowserView, providing full automation capabilities.
 
 ## Installation
 
@@ -35,90 +35,59 @@ Add to your MCP configuration (`.mcp.json` or Claude settings):
 }
 ```
 
-## Available Tools
+## Available Tools (25+)
 
-### `claude_lens/inspect_element`
+### Core Tools
+| Tool | Description |
+|------|-------------|
+| `claude_lens/screenshot` | Capture viewport or specific element |
+| `claude_lens/browser_snapshot` | Get accessibility tree (interactive elements) |
+| `claude_lens/navigate` | Navigate to URL (localhost only) |
+| `claude_lens/reload` | Reload the current page |
 
-Get element details including selector, computed styles, and bounding box.
+### Form Interaction
+| Tool | Description |
+|------|-------------|
+| `claude_lens/click` | Click an element |
+| `claude_lens/fill` | Fill input field (clears first) |
+| `claude_lens/type` | Type text character by character |
+| `claude_lens/select_option` | Select dropdown option(s) |
+| `claude_lens/press_key` | Press keyboard key (Enter, Tab, etc.) |
 
-```typescript
-// Parameters
-{
-  selector?: string  // CSS selector (optional, uses last clicked element if omitted)
-}
+### Mouse Interaction
+| Tool | Description |
+|------|-------------|
+| `claude_lens/hover` | Hover over element (trigger hover states) |
+| `claude_lens/drag_and_drop` | Drag from source to target |
+| `claude_lens/scroll` | Scroll page or element into view |
 
-// Response
-{
-  selector: string,
-  tagName: string,
-  styles: Record<string, string>,
-  boundingBox: { x, y, width, height }
-}
-```
+### Waiting
+| Tool | Description |
+|------|-------------|
+| `claude_lens/wait_for` | Wait for element to appear |
+| `claude_lens/wait_for_response` | Wait for network response |
 
-### `claude_lens/highlight_element`
+### Element Inspection
+| Tool | Description |
+|------|-------------|
+| `claude_lens/inspect_element` | Get element details (styles, position) |
+| `claude_lens/highlight_element` | Highlight element visually |
+| `claude_lens/get_text` | Get element text content |
+| `claude_lens/get_attribute` | Get element attribute value |
+| `claude_lens/is_visible` | Check if element is visible |
+| `claude_lens/is_enabled` | Check if element is enabled |
+| `claude_lens/is_checked` | Check if checkbox/radio is checked |
 
-Visually highlight an element in the browser.
+### Navigation & Dialogs
+| Tool | Description |
+|------|-------------|
+| `claude_lens/go_back` | Browser back button |
+| `claude_lens/go_forward` | Browser forward button |
+| `claude_lens/handle_dialog` | Handle alert/confirm/prompt |
+| `claude_lens/evaluate` | Execute custom JavaScript |
+| `claude_lens/get_console` | Get browser console logs |
 
-```typescript
-// Parameters
-{
-  selector: string,  // CSS selector to highlight
-  color?: string     // Highlight color (default: #3b82f6)
-}
-```
-
-### `claude_lens/screenshot`
-
-Capture the current viewport as a PNG image.
-
-```typescript
-// Parameters
-{
-  fullPage?: boolean  // Capture full page (default: false)
-}
-
-// Response
-{
-  image: string  // Base64-encoded PNG
-}
-```
-
-### `claude_lens/navigate`
-
-Navigate to a URL (localhost only for security).
-
-```typescript
-// Parameters
-{
-  url: string  // URL to navigate to (must be localhost)
-}
-```
-
-### `claude_lens/get_console`
-
-Retrieve console log messages.
-
-```typescript
-// Parameters
-{
-  level?: "error" | "warn" | "log" | "all",  // Filter by level
-  limit?: number  // Max messages to return
-}
-
-// Response
-{
-  messages: Array<{ level, text, source, timestamp }>
-}
-```
-
-### `claude_lens/reload`
-
-Reload the current page.
-
-```typescript
-// No parameters required
-```
+See [MCP-TOOLS.md](../../docs/api/MCP-TOOLS.md) for full parameter documentation.
 
 ## Architecture
 

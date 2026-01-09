@@ -186,13 +186,21 @@ Claude: Got it. The header button uses:
 
 ## What You Get
 
-### Today (v0.0.1 - Working Prototype)
+### Today (v0.2.1)
 
-- VS Code extension with embedded browser panel
+- **Standalone Electron Desktop App** - No VS Code required
+- **VS Code Extension** - Embedded browser panel
+- **25+ Playwright-Powered MCP Tools** - Full browser automation
+  - Click, fill, type, hover, drag-and-drop, scroll
+  - Wait for elements and network responses
+  - Keyboard input and dropdown selection
+  - Dialog handling (alert/confirm/prompt)
+  - JavaScript execution
 - Ctrl+Click element inspection (selector, styles, bounding box)
 - Console error/warning capture with secret redaction
-- Claude can highlight elements in your browser
-- Screenshot and navigation tools
+- Visual element highlighting
+- Screenshot capture (viewport or element)
+- 5-second default timeouts for fast feedback
 - WSL support (auto-launches Windows Chrome)
 
 ### Coming Soon
@@ -201,7 +209,6 @@ Claude: Got it. The header button uses:
 - Multi-element selection ("make this match that")
 - Visual diff mode (before/after comparison)
 - Network request monitoring
-- Standalone Electron app (no VS Code required)
 
 ---
 
@@ -239,9 +246,10 @@ Claude Lens makes Claude Code visual.
 
 | Component | Technology | Why |
 |-----------|------------|-----|
-| Browser control | Chrome DevTools Protocol | Industry standard, rich APIs |
+| Browser control | Playwright via CDP | Full automation API with Electron BrowserView control |
 | Claude integration | Model Context Protocol (MCP) | Native Claude Code support |
 | VS Code integration | Extension + Webview | Where developers already work |
+| Desktop app | Electron | Standalone option, embedded browser + terminal |
 | Security | Localhost-only, CSP, secret redaction | Privacy by design |
 
 **Built on proven technology, not hacks.**

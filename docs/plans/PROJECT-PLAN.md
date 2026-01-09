@@ -128,7 +128,7 @@
 
 ### Commands
 ```bash
-cd /mnt/c/Users/Hoff/Desktop/Coding/claude-lens
+cd /path/to/claude-lens
 
 # Build all packages
 pnpm run build

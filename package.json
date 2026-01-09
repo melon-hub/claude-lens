@@ -5,6 +5,24 @@
   "description": "Visual web development companion for Claude Code",
   "author": "melon-hub",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/melon-hub/claude-lens.git"
+  },
+  "homepage": "https://github.com/melon-hub/claude-lens",
+  "bugs": {
+    "url": "https://github.com/melon-hub/claude-lens/issues"
+  },
+  "keywords": [
+    "claude",
+    "ai",
+    "browser",
+    "mcp",
+    "web-development",
+    "devtools",
+    "vscode-extension",
+    "electron"
+  ],
   "scripts": {
     "dev": "pnpm -r --parallel run dev",
     "build": "pnpm -r run build",
@@ -15,11 +33,11 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "eslint": "^8.56.0",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
-    "typescript": "^5.3.3",
-    "esbuild": "^0.20.0"
+    "esbuild": "^0.20.2",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
   },
   "engines": {
     "node": ">=18.0.0",

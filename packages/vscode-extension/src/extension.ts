@@ -340,7 +340,11 @@ async function sendElementToClaude(element: ElementInfo, userPrompt?: string): P
     : context;
 
   // Write to context file for hook injection
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '/mnt/c/Users/Hoff';
+  const homeDir = process.env.HOME || process.env.USERPROFILE;
+  if (!homeDir) {
+    console.error('Unable to determine home directory');
+    return;
+  }
   const contextPath = vscode.Uri.file(`${homeDir}/.claude-lens-context.md`);
   const timestamp = new Date().toISOString();
   const fullContent = `<!-- Claude Lens Context - ${timestamp} -->\n${fullPrompt}`;

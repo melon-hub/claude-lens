@@ -31,3 +31,7 @@ coverage/
 tmp/
 .tmp/
 .claude-lens-context.md
+
+# Local MCP configs (may contain absolute paths)
+.mcp.json
+packages/*/.mcp.json

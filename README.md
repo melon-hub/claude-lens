@@ -179,6 +179,34 @@ Add to `~/.claude/settings.json`:
 
 ### Roadmap
 
+#### Automation Tools (browser-use style)
+
+| Tool | Description | Status |
+|------|-------------|--------|
+| `claude_lens_click` | Claude clicks an element by selector | 🔜 Planned |
+| `claude_lens_type` | Claude types into input fields | 🔜 Planned |
+| `claude_lens_scroll` | Claude scrolls the page | 🔜 Planned |
+| `claude_lens_hover` | Claude hovers over elements | 🔜 Planned |
+| `claude_lens_wait_for` | Claude waits for element/condition | 🔜 Planned |
+| `claude_lens_select` | Claude selects dropdown options | 🔜 Planned |
+
+**Example workflow with automation:**
+```
+You: Test the login form with invalid credentials
+
+Claude: I'll test the login form now.
+        *clicks email field*
+        *types "invalid@test.com"*
+        *clicks password field*
+        *types "wrongpassword"*
+        *clicks submit button*
+
+        I see an error message appeared: "Invalid credentials"
+        The form is working correctly. Want me to test valid credentials too?
+```
+
+#### Other Planned Features
+
 | Feature | Status | Description |
 |---------|--------|-------------|
 | React/Vue detection | Planned | Map DOM elements to component source files |
@@ -256,6 +284,32 @@ packages/
 | **Playwright MCP** | Must know selectors. Can't point at things. |
 | **DevTools MCP** | No visual selection. Great for debugging, not iterative UI work. |
 | **Cursor's browser** | Proprietary. Claude Lens is open source and MCP-native. |
+
+---
+
+## vs Cursor's Built-in Browser
+
+Cursor has an integrated browser. Here's how Claude Lens compares:
+
+| Capability | Cursor Browser | Claude Lens |
+|------------|:--------------:|:-----------:|
+| Embedded in IDE | ✅ | ✅ |
+| Live browser view | ✅ Real browser | ⚠️ Screenshot stream |
+| User clicks to inspect | ✅ | ✅ |
+| **AI clicks autonomously** | ✅ | 🔜 Planned |
+| **AI fills forms** | ✅ | 🔜 Planned |
+| Console access | ✅ | ✅ |
+| AI conversation context | ✅ Cursor AI | ✅ Claude Code |
+| Works outside Cursor | ❌ | ✅ |
+| Works with Claude Code | ❌ | ✅ |
+| Open source | ❌ | ✅ |
+
+**Honest comparison:**
+- Cursor's browser is more polished (real embedded browser, AI can interact directly)
+- Claude Lens is currently observation-focused (you click, Claude sees)
+- Automation capabilities (Claude clicks, types, scrolls) are on the roadmap
+
+**The real difference:** Cursor's browser is proprietary and Cursor-only. Claude Lens is open, extensible, and designed for Claude Code's MCP ecosystem. And we're adding automation.
 
 ---
 

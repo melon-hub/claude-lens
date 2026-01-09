@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <title>Claude Lens</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <span class="logo">Claude Lens</span>
+        <span id="appVersion" class="version"></span>
+      </div>
+      <div class="header-center">
+        <input type="text" id="urlInput" class="url-input" placeholder="http://localhost:3000" value="http://localhost:3000">
+        <button id="goBtn" class="btn">Go</button>
+        <button id="refreshBtn" class="btn">↻</button>
+      </div>
+      <div class="header-right">
+        <span id="status" class="status">Disconnected</span>
+      </div>
+    </header>
+
+    <!-- Main Content - Three Columns -->
+    <div class="main">
+      <!-- Browser Panel (Left) -->
+      <div class="panel browser-panel">
+        <div class="panel-header">
+          <span>Browser</span>
+          <div class="panel-header-actions">
+            <button id="inspectBtn" class="btn btn-small">Inspect</button>
+            <button id="consoleToggleBtn" class="btn btn-small">Console</button>
+          </div>
+        </div>
+        <div class="panel-content">
+          <div id="placeholder" class="placeholder">
+            <div class="placeholder-icon">🔍</div>
+            <div class="placeholder-title">Browser Preview</div>
+            <div class="placeholder-text">Enter a localhost URL and click Go</div>
+          </div>
+          <!-- BrowserView renders here via Electron -->
+        </div>
+        <!-- Console Drawer (bottom of browser) -->
+        <div id="consoleDrawer" class="console-drawer hidden">
+          <div class="console-drawer-header">
+            <span>Console</span>
+            <div class="console-drawer-actions">
+              <span id="consoleDrawerCount" class="console-count">0</span>
+              <button id="consoleClearBtn" class="btn btn-small">Clear</button>
+              <button id="consoleSendBtn" class="btn btn-small btn-primary">Send to Claude</button>
+            </div>
+          </div>
+          <div id="consoleDrawerMessages" class="console-drawer-content"></div>
+        </div>
+      </div>
+
+      <!-- Resizer 1 -->
+      <div class="resizer" id="resizer1"></div>
+
+      <!-- Context Panel (Middle) -->
+      <div class="panel context-panel">
+        <div class="panel-header">
+          <span>Context</span>
+        </div>
+        <div class="panel-content" id="contextContent">
+          <!-- Element Info Section -->
+          <div id="elementInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">ELEMENT</span>
+            </div>
+            <div class="section-content">
+              <code id="elementTag" class="element-tag"></code>
+            </div>
+          </div>
+
+          <!-- Path Section -->
+          <div id="pathInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">PATH</span>
+            </div>
+            <div class="section-content">
+              <code id="elementPath" class="element-path"></code>
+            </div>
+          </div>
+
+          <!-- Attributes Section -->
+          <div id="attributesInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">ATTRIBUTES</span>
+            </div>
+            <div class="section-content" id="attributesList"></div>
+          </div>
+
+          <!-- Styles Section -->
+          <div id="stylesInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">COMPUTED STYLES</span>
+            </div>
+            <div class="section-content" id="stylesList"></div>
+          </div>
+
+          <!-- Position/Size Section -->
+          <div id="positionInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">POSITION & SIZE</span>
+            </div>
+            <div class="section-content" id="positionData"></div>
+          </div>
+
+          <!-- Inner Text Section -->
+          <div id="textInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">INNER TEXT</span>
+            </div>
+            <div class="section-content">
+              <span id="innerText" class="inner-text"></span>
+            </div>
+          </div>
+
+          <!-- Empty State -->
+          <div id="contextEmpty" class="context-empty">
+            <div class="empty-icon">🎯</div>
+            <div class="empty-text">Click "Inspect" then select an element</div>
+          </div>
+        </div>
+
+        <!-- Element Chips -->
+        <div class="element-chips" id="elementChips"></div>
+
+        <!-- Prompt Input -->
+        <div class="prompt-area">
+          <textarea id="promptInput" class="prompt-textarea" placeholder="What should Claude do with this element?"></textarea>
+          <div class="prompt-actions">
+            <button id="sendPromptBtn" class="btn btn-primary">Send to Claude</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resizer 2 -->
+      <div class="resizer" id="resizer2"></div>
+
+      <!-- Claude Panel (Right) -->
+      <div class="panel claude-panel">
+        <div class="panel-header">
+          <span>Claude Code</span>
+          <button id="startClaudeBtn" class="btn btn-small">Start Claude</button>
+        </div>
+        <div class="panel-content">
+          <div id="terminal" class="terminal"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

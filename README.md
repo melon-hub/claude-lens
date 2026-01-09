@@ -4,7 +4,7 @@
 
 Visual web development companion for Claude Code that bridges what you *see* with what Claude *knows*.
 
-**Status:** Working Prototype (v0.0.1)
+**Status:** Working Prototype | VS Code Extension (v0.0.1) | Desktop App (v0.1.5)
 
 ---
 
@@ -113,10 +113,8 @@ Claude: Got it. The header button uses:
 
 ### Prerequisites
 
-- VS Code
 - Node.js 18+
 - pnpm 8+
-- Google Chrome
 
 ### Installation
 
@@ -127,7 +125,24 @@ pnpm install
 pnpm run build
 ```
 
-### Running
+### Option A: Desktop App (Recommended)
+
+The desktop app provides the best experience with a real embedded browser and integrated Claude Code terminal.
+
+```bash
+cd packages/desktop
+pnpm run dev
+```
+
+Features:
+- **Real browser** (not screenshots) - full interaction
+- **Integrated Claude Code terminal** - no context switching
+- **Hover tooltips** - see element selectors as you move
+- **One-click inspect** - click element → instantly sent to Claude
+
+### Option B: VS Code Extension
+
+For those who prefer staying in VS Code:
 
 1. Open claude-lens in VS Code
 2. Press `F5` to launch Extension Development Host
@@ -135,7 +150,7 @@ pnpm run build
 4. Enter localhost URL → Click "Go"
 5. `Ctrl+Click` any element to inspect
 
-### Connect to Claude Code
+### Connect MCP Server to Claude Code
 
 Add to `~/.claude/settings.json`:
 
@@ -154,18 +169,37 @@ Add to `~/.claude/settings.json`:
 
 ## Features
 
-### Current (v0.0.1)
+### Desktop App (v0.1.5)
 
 | Feature | Description |
 |---------|-------------|
-| **Browser Panel** | Embedded browser view in VS Code with live screenshot streaming |
-| **Element Inspection** | Ctrl+Click any element → selector, styles, bounding box sent to Claude |
+| **Real Embedded Browser** | Full BrowserView - not screenshots, real browser interaction |
+| **Integrated Claude Terminal** | Claude Code runs inside the app via PTY |
+| **Hover Tooltips** | See element selectors as you hover |
+| **One-Click to Claude** | Click element → instantly sent to Claude conversation |
+| **Console Drawer** | Live console errors/warnings with filtering |
+| **Framework Detection** | Detects React, Vue, Svelte, Angular components |
+
+### VS Code Extension (v0.0.1)
+
+| Feature | Description |
+|---------|-------------|
+| **Browser Panel** | Screenshot streaming from Chrome via CDP |
+| **Element Inspection** | Ctrl+Click any element → selector, styles, bounding box |
 | **Console Streaming** | Errors and warnings automatically flow to Claude |
-| **Secret Redaction** | API keys, tokens, JWTs automatically redacted from logs |
-| **Element Highlighting** | Claude can highlight elements to show you what it means |
+| **Secret Redaction** | API keys, tokens, JWTs automatically redacted |
+| **Element Highlighting** | Claude can highlight elements in your browser |
 | **Screenshots** | Full page or element screenshots as MCP image content |
-| **Navigation** | Claude can navigate your app (localhost only) |
 | **WSL Support** | Auto-launches Windows Chrome from WSL |
+
+### Core Features (Both)
+
+| Feature | Description |
+|---------|-------------|
+| **React/Vue/Svelte/Angular Detection** | Identifies component names and source files |
+| **MCP Integration** | Native Claude Code tools |
+| **Localhost Security** | Only allows local development URLs |
+| **Secret Redaction** | Automatically redacts API keys, tokens, credentials |
 
 ### MCP Tools
 
@@ -209,11 +243,11 @@ Claude: I'll test the login form now.
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| React/Vue detection | Planned | Map DOM elements to component source files |
-| Multi-element select | Planned | "Make this look like that" workflow |
-| Visual diff mode | Planned | Before/after comparison |
-| Network monitoring | Planned | Failed requests auto-reported |
-| Standalone app | Planned | Electron app, no VS Code required |
+| React/Vue detection | ✅ Done | Map DOM elements to component source files |
+| Standalone app | ✅ Done | Electron desktop app (v0.1.5) |
+| Multi-element select | 🔜 Planned | "Make this look like that" workflow |
+| Visual diff mode | 🔜 Planned | Before/after comparison |
+| Network monitoring | 🔜 Planned | Failed requests auto-reported |
 
 ---
 
@@ -250,13 +284,17 @@ Claude: I'll test the login form now.
 
 ```
 packages/
-├── core/              # @claude-lens/core
-│   ├── browser/       # CDP adapter, Chrome launcher
+├── core/              # @claude-lens/core - shared functionality
+│   ├── browser/       # CDP adapter, Chrome launcher, framework detection
 │   ├── security/      # URL validation, secret redaction
 │   ├── bridge/        # HTTP bridge for MCP ↔ Extension
 │   └── inspector/     # Element inspection logic
 │
-├── vscode-extension/  # VS Code extension + webview
+├── desktop/           # Electron desktop app (recommended)
+│   ├── main/          # Main process - BrowserView, PTY, MCP server
+│   └── renderer/      # UI - browser panel, console drawer, Claude terminal
+│
+├── vscode-extension/  # VS Code extension (alternative)
 │
 └── mcp-server/        # Standalone MCP server for Claude Code
 ```
@@ -291,25 +329,27 @@ packages/
 
 Cursor has an integrated browser. Here's how Claude Lens compares:
 
-| Capability | Cursor Browser | Claude Lens |
-|------------|:--------------:|:-----------:|
-| Embedded in IDE | ✅ | ✅ |
-| Live browser view | ✅ Real browser | ⚠️ Screenshot stream |
-| User clicks to inspect | ✅ | ✅ |
-| **AI clicks autonomously** | ✅ | 🔜 Planned |
-| **AI fills forms** | ✅ | 🔜 Planned |
-| Console access | ✅ | ✅ |
-| AI conversation context | ✅ Cursor AI | ✅ Claude Code |
-| Works outside Cursor | ❌ | ✅ |
-| Works with Claude Code | ❌ | ✅ |
-| Open source | ❌ | ✅ |
+| Capability | Cursor Browser | Claude Lens Desktop | Claude Lens VS Code |
+|------------|:--------------:|:-------------------:|:-------------------:|
+| Embedded in IDE/App | ✅ | ✅ | ✅ |
+| Live browser view | ✅ Real browser | ✅ Real browser | ⚠️ Screenshot stream |
+| User clicks to inspect | ✅ | ✅ | ✅ |
+| Hover tooltips | ✅ | ✅ | ❌ |
+| **AI clicks autonomously** | ✅ | 🔜 Planned | 🔜 Planned |
+| **AI fills forms** | ✅ | 🔜 Planned | 🔜 Planned |
+| Console access | ✅ | ✅ | ✅ |
+| Framework detection | ? | ✅ React/Vue/Svelte/Angular | ✅ |
+| AI conversation context | ✅ Cursor AI | ✅ Claude Code | ✅ Claude Code |
+| Works outside Cursor | ❌ | ✅ | ✅ |
+| Works with Claude Code | ❌ | ✅ | ✅ |
+| Open source | ❌ | ✅ | ✅ |
 
 **Honest comparison:**
-- Cursor's browser is more polished (real embedded browser, AI can interact directly)
-- Claude Lens is currently observation-focused (you click, Claude sees)
-- Automation capabilities (Claude clicks, types, scrolls) are on the roadmap
+- Cursor's browser has AI automation (clicking, typing) that we're still building
+- Claude Lens Desktop now has a real embedded browser (BrowserView), matching Cursor's approach
+- Claude Lens is open source and designed for Claude Code's MCP ecosystem
 
-**The real difference:** Cursor's browser is proprietary and Cursor-only. Claude Lens is open, extensible, and designed for Claude Code's MCP ecosystem. And we're adding automation.
+**The real difference:** Cursor's browser is proprietary and Cursor-only. Claude Lens is open, extensible, and Claude Code native.
 
 ---
 

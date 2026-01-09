@@ -6,6 +6,9 @@ Visual web development companion for Claude Code that bridges what you *see* wit
 
 **Status:** Working Prototype | VS Code Extension (v0.1.0) | Desktop App (v0.2.1)
 
+<img width="2560" height="1392" alt="image" src="https://github.com/user-attachments/assets/1fa6ee4d-84f8-477b-8906-c798a101f688" />
+
+
 ---
 
 ## The Problem

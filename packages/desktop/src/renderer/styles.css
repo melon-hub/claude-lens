@@ -874,3 +874,77 @@ body.drag-over::after {
   border: 4px dashed var(--accent);
   pointer-events: none;
 }
+
+/* Inspect Sequence Styles */
+.sequence-count {
+  background: var(--accent);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sequence-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  justify-content: flex-end;
+}
+
+.sequence-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.sequence-item:last-child {
+  border-bottom: none;
+}
+
+.sequence-number {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background: var(--bg-hover);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.sequence-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.sequence-element {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.sequence-selector {
+  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  word-break: break-all;
+  margin-bottom: 2px;
+}
+
+.sequence-result {
+  font-size: 11px;
+  color: var(--warning);
+  font-style: italic;
+}
+
+.sequence-result.blocked {
+  color: var(--error);
+}

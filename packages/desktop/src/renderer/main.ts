@@ -6,7 +6,7 @@
  */
 
 import { Terminal } from 'xterm';
-import type { ElementInfo, ProjectInfo } from './types';
+import type { ElementInfo, ProjectInfo, CapturedInteraction } from './types';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -95,6 +95,13 @@ const elementChips = document.getElementById('elementChips') as HTMLDivElement;
 const promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
 const sendPromptBtn = document.getElementById('sendPromptBtn') as HTMLButtonElement;
 
+// Elements - Inspect Sequence (Phase 2)
+const inspectSequenceInfo = document.getElementById('inspectSequenceInfo') as HTMLDivElement;
+const sequenceCount = document.getElementById('sequenceCount') as HTMLSpanElement;
+const inspectSequenceList = document.getElementById('inspectSequenceList') as HTMLDivElement;
+const clearSequenceBtn = document.getElementById('clearSequenceBtn') as HTMLButtonElement;
+const sendSequenceBtn = document.getElementById('sendSequenceBtn') as HTMLButtonElement;
+
 // Elements - Resizers
 const resizer1 = document.getElementById('resizer1') as HTMLDivElement;
 const resizer2 = document.getElementById('resizer2') as HTMLDivElement;
@@ -126,6 +133,9 @@ let browserLoaded = false;
 let inspectMode = false;
 let selectedElements: ElementInfo[] = [];
 let consoleDrawerOpen = false;
+
+// Inspect sequence state (Phase 2: multi-click capture)
+let inspectSequence: CapturedInteraction[] = [];
 
 // Console drawer height - 200px CSS + extra buffer for BrowserView bounds
 const DRAWER_HEIGHT = 235;
@@ -327,11 +337,27 @@ async function init() {
   // Listen for element selection from BrowserView
   window.claudeLens.browser.onElementSelected((element) => {
     const elementData = element as ElementInfo;
-    inspectMode = false;
-    inspectBtn.textContent = 'Inspect';
-    inspectBtn.classList.remove('btn-primary');
-    setStatus('Element selected', true);
-    addSelectedElement(elementData);
+
+    // If in inspect mode, add to sequence instead of exiting
+    if (inspectMode) {
+      // Add to inspect sequence
+      const interaction: CapturedInteraction = {
+        element: elementData,
+        action: 'click',
+        result: elementData.interactionResult || 'Element captured',
+        timestamp: Date.now(),
+      };
+      inspectSequence.push(interaction);
+      updateInspectSequenceUI();
+
+      // Also add to selected elements
+      addSelectedElement(elementData);
+      setStatus(`Captured ${inspectSequence.length} interaction(s)`, true);
+    } else {
+      // Normal single-element selection (Ctrl+Click)
+      addSelectedElement(elementData);
+      setStatus('Element selected', true);
+    }
   });
 
   // Listen for project detection (File > Open Project)
@@ -759,6 +785,69 @@ function updateConsoleDrawer() {
   consoleDrawerMessages.scrollTop = consoleDrawerMessages.scrollHeight;
 }
 
+// Update inspect sequence UI (Phase 2)
+function updateInspectSequenceUI() {
+  // Show/hide sequence section
+  if (inspectSequence.length > 0) {
+    inspectSequenceInfo.classList.remove('hidden');
+    sequenceCount.textContent = String(inspectSequence.length);
+  } else {
+    inspectSequenceInfo.classList.add('hidden');
+  }
+
+  // Render sequence items
+  inspectSequenceList.textContent = '';
+
+  for (let i = 0; i < inspectSequence.length; i++) {
+    const interaction = inspectSequence[i];
+    if (!interaction) continue;
+    const el = interaction.element;
+
+    const item = document.createElement('div');
+    item.className = 'sequence-item';
+
+    // Step number
+    const numberEl = document.createElement('div');
+    numberEl.className = 'sequence-number';
+    numberEl.textContent = String(i + 1);
+    item.appendChild(numberEl);
+
+    // Content
+    const contentEl = document.createElement('div');
+    contentEl.className = 'sequence-content';
+
+    // Element description
+    const elementEl = document.createElement('div');
+    elementEl.className = 'sequence-element';
+    elementEl.textContent = el.description || `<${el.tagName}${el.id ? '#' + el.id : ''}>`;
+    contentEl.appendChild(elementEl);
+
+    // Selector
+    const selectorEl = document.createElement('div');
+    selectorEl.className = 'sequence-selector';
+    selectorEl.textContent = el.selector;
+    contentEl.appendChild(selectorEl);
+
+    // Result
+    const resultEl = document.createElement('div');
+    resultEl.className = 'sequence-result';
+    if (interaction.result.includes('blocked')) {
+      resultEl.classList.add('blocked');
+    }
+    resultEl.textContent = interaction.result;
+    contentEl.appendChild(resultEl);
+
+    item.appendChild(contentEl);
+    inspectSequenceList.appendChild(item);
+  }
+}
+
+// Clear inspect sequence
+function clearInspectSequence() {
+  inspectSequence = [];
+  updateInspectSequenceUI();
+}
+
 // Start Claude
 startClaudeBtn.addEventListener('click', async () => {
   if (claudeRunning) return;
@@ -828,7 +917,7 @@ viewportSelect.addEventListener('change', () => {
   updateBrowserBounds();
 });
 
-// Inspect mode toggle
+// Inspect mode toggle (Phase 2: sequence capture mode)
 inspectBtn.addEventListener('click', async () => {
   if (!browserLoaded) {
     alert('Load a page first');
@@ -838,15 +927,22 @@ inspectBtn.addEventListener('click', async () => {
   inspectMode = !inspectMode;
 
   if (inspectMode) {
+    // Clear previous sequence when entering inspect mode
+    clearInspectSequence();
     await window.claudeLens.browser.enableInspect();
-    inspectBtn.textContent = 'Click element...';
+    inspectBtn.textContent = 'Stop Inspecting';
     inspectBtn.classList.add('btn-primary');
-    setStatus('Click an element in the browser', false);
+    setStatus('Click elements to capture sequence (click button again to stop)', false);
   } else {
     await window.claudeLens.browser.disableInspect();
     inspectBtn.textContent = 'Inspect';
     inspectBtn.classList.remove('btn-primary');
-    setStatus('Connected', true);
+    // Don't clear sequence - user may want to send it
+    if (inspectSequence.length > 0) {
+      setStatus(`Captured ${inspectSequence.length} interaction(s) - click "Send Sequence" to send`, true);
+    } else {
+      setStatus('Connected', true);
+    }
   }
 });
 
@@ -871,6 +967,69 @@ consoleToggleBtn.addEventListener('click', () => {
 consoleClearBtn.addEventListener('click', () => {
   consoleBuffer.length = 0;
   updateConsoleUI();
+});
+
+// Inspect sequence clear button (Phase 2)
+clearSequenceBtn.addEventListener('click', () => {
+  clearInspectSequence();
+  setStatus('Sequence cleared', true);
+});
+
+// Inspect sequence send button (Phase 2)
+sendSequenceBtn.addEventListener('click', async () => {
+  if (!claudeRunning) {
+    alert('Start Claude first!');
+    return;
+  }
+
+  if (inspectSequence.length === 0) {
+    alert('No interactions captured. Click elements in Inspect mode first.');
+    return;
+  }
+
+  // Get current page URL
+  const pageURL = await window.claudeLens.browser.getURL();
+
+  // Format sequence for Claude
+  let sequenceContext = `## Captured Interaction Sequence (${inspectSequence.length} steps)\n\n`;
+  sequenceContext += `**Page:** ${pageURL || 'Unknown'}\n\n`;
+
+  for (let i = 0; i < inspectSequence.length; i++) {
+    const interaction = inspectSequence[i];
+    if (!interaction) continue;
+    const el = interaction.element;
+
+    sequenceContext += `### Step ${i + 1}: ${el.description || el.tagName}\n`;
+    sequenceContext += `- **Action:** ${interaction.action}\n`;
+    sequenceContext += `- **Selector:** \`${el.selector}\`\n`;
+    sequenceContext += `- **Result:** ${interaction.result}\n`;
+    if (el.text) {
+      sequenceContext += `- **Text:** "${el.text.slice(0, 50)}${el.text.length > 50 ? '...' : ''}"\n`;
+    }
+    sequenceContext += '\n';
+  }
+
+  const toolHints = `---
+**Claude Lens Context**
+- This is an interaction sequence captured during Inspect mode
+- Actions were blocked to preserve UI state (dropdowns stayed open, etc.)
+- Use \`claude_lens/screenshot\` to see the current state
+- Use \`claude_lens/click\` to replay interactions (without blocking)
+---
+
+`;
+
+  const fullPrompt = `${toolHints}Here is the captured interaction sequence:\n\n${sequenceContext}`;
+  const result = await window.claudeLens.sendToClaude(fullPrompt, '');
+
+  if (result.success) {
+    // Clear sequence after sending
+    clearInspectSequence();
+    terminal.focus();
+    setStatus('Sequence sent to Claude', true);
+  } else {
+    alert('Failed to send to Claude');
+  }
 });
 
 // Send console to Claude button

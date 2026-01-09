@@ -1158,6 +1158,7 @@ ipcMain.handle('browser:getBounds', () => {
 });
 
 // Enable inspect mode - inject click listener and hover tracking into BrowserView
+// Phase 2: Stays in inspect mode until explicitly disabled, captures interaction sequence
 ipcMain.handle('browser:enableInspect', async () => {
   if (!browserView) return { success: false };
 
@@ -1165,7 +1166,7 @@ ipcMain.handle('browser:enableInspect', async () => {
     // First inject hover tracking
     await injectHoverTracking();
 
-    // Then inject click handler
+    // Then inject click handler - stays active for multiple clicks (sequence capture)
     await browserView.webContents.executeJavaScript(`
       (function() {
         // Remove existing listener if any
@@ -1174,8 +1175,10 @@ ipcMain.handle('browser:enableInspect', async () => {
         }
 
         window.__claudeLensInspectHandler = function(e) {
+          // Block ALL event handlers to prevent dropdowns from closing
           e.preventDefault();
           e.stopPropagation();
+          e.stopImmediatePropagation();
 
           const el = e.target;
 
@@ -1184,7 +1187,7 @@ ipcMain.handle('browser:enableInspect', async () => {
             if (element.id) return '#' + element.id;
             let selector = element.tagName.toLowerCase();
             if (element.className && typeof element.className === 'string') {
-              const classes = element.className.trim().split(/\\s+/).filter(c => c);
+              const classes = element.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'));
               if (classes.length) selector += '.' + classes.join('.');
             }
             const parent = element.parentElement;
@@ -1207,6 +1210,42 @@ ipcMain.handle('browser:enableInspect', async () => {
               current = current.parentElement;
             }
             return parts.join(' > ');
+          }
+
+          // Detect interaction type for result message
+          function detectInteractionResult(element) {
+            const role = element.getAttribute('role');
+            const tagName = element.tagName.toLowerCase();
+            const ariaExpanded = element.getAttribute('aria-expanded');
+            const ariaHaspopup = element.getAttribute('aria-haspopup');
+
+            // Check for menu items
+            if (role === 'menuitem' || role === 'option' || element.closest('[role="menu"]') || element.closest('[role="listbox"]')) {
+              return 'Menu item selected (action blocked)';
+            }
+
+            // Check for dropdown triggers
+            if (ariaHaspopup || ariaExpanded || element.hasAttribute('data-toggle') ||
+                element.classList.contains('dropdown-toggle') || element.closest('.dropdown-toggle')) {
+              return 'Dropdown trigger clicked (action blocked)';
+            }
+
+            // Check for buttons/links
+            if (tagName === 'button' || tagName === 'a' || role === 'button' || role === 'link') {
+              return 'Button/link clicked (action blocked)';
+            }
+
+            // Check for form elements
+            if (tagName === 'input' || tagName === 'select' || tagName === 'textarea') {
+              return 'Form element selected';
+            }
+
+            // Check for modal/dialog close buttons
+            if (element.closest('[role="dialog"]') || element.closest('.modal')) {
+              return 'Modal element clicked (action blocked)';
+            }
+
+            return 'Element captured';
           }
 
           // Get all attributes
@@ -1237,39 +1276,36 @@ ipcMain.handle('browser:enableInspect', async () => {
             height: rect.height,
           };
 
+          // Detect interaction result
+          const interactionResult = detectInteractionResult(el);
+
           const elementInfo = {
             tagName: el.tagName.toLowerCase(),
             id: el.id || undefined,
             classes: el.className && typeof el.className === 'string'
-              ? el.className.trim().split(/\\s+/).filter(c => c)
+              ? el.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'))
               : [],
             selector: getFullSelector(el),
             text: el.textContent?.slice(0, 100) || '',
             attributes: attributes,
             styles: styles,
             position: position,
+            interactionResult: interactionResult,
           };
 
-          // Highlight
+          // Highlight - different color for sequence mode
           document.querySelectorAll('.claude-lens-highlight').forEach(h => h.remove());
           const highlight = document.createElement('div');
           highlight.className = 'claude-lens-highlight';
-          highlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #3b82f6;background:rgba(59,130,246,0.1);pointer-events:none;z-index:999999;';
+          highlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #f59e0b;background:rgba(245,158,11,0.1);pointer-events:none;z-index:999999;';
           document.body.appendChild(highlight);
-          setTimeout(() => { highlight.style.opacity = '0'; setTimeout(() => highlight.remove(), 300); }, 3000);
+          // Don't auto-remove - keep visible while in inspect mode
 
           // Send back to Electron via console (we'll catch this)
           console.log('CLAUDE_LENS_ELEMENT:' + JSON.stringify(elementInfo));
 
-          // Remove listener after one click
-          document.removeEventListener('click', window.__claudeLensInspectHandler, true);
-          window.__claudeLensInspectHandler = null;
-          document.body.style.cursor = '';
-
-          // Clean up hover tracking
-          if (window.__claudeLensHoverCleanup) {
-            window.__claudeLensHoverCleanup();
-          }
+          // NOTE: DON'T remove listener - stay in inspect mode for sequence capture
+          // User must explicitly click "Inspect" again to disable
         };
 
         document.addEventListener('click', window.__claudeLensInspectHandler, true);

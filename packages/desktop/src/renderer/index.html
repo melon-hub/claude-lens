@@ -162,6 +162,19 @@
             <div class="empty-text">Click "Inspect" then select an element</div>
             <div class="empty-hint">or Ctrl+Click any element for quick capture</div>
           </div>
+
+          <!-- Inspect Sequence (shown during multi-click inspect) -->
+          <div id="inspectSequenceInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">CAPTURED INTERACTIONS</span>
+              <span id="sequenceCount" class="sequence-count">0</span>
+            </div>
+            <div class="section-content" id="inspectSequenceList"></div>
+            <div class="sequence-actions">
+              <button id="clearSequenceBtn" class="btn btn-small">Clear</button>
+              <button id="sendSequenceBtn" class="btn btn-small btn-primary">Send Sequence</button>
+            </div>
+          </div>
         </div>
 
         <!-- Element Chips -->

@@ -34,6 +34,16 @@ export interface ElementInfo {
   styles?: Record<string, string>;
   position?: { x: number; y: number; width: number; height: number };
   framework?: FrameworkInfo;
+  /** Result of interaction attempt (for inspect sequence) */
+  interactionResult?: string;
+}
+
+/** Captured interaction in inspect sequence */
+export interface CapturedInteraction {
+  element: ElementInfo;
+  action: 'click';
+  result: string;
+  timestamp: number;
 }
 
 export interface ProjectInfo {

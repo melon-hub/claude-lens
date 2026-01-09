@@ -14,12 +14,22 @@ export interface FrameworkInfo {
   components: ComponentInfo[];
 }
 
+export interface ParentChainItem {
+  tagName: string;
+  selector: string;
+  description: string;
+}
+
 export interface ElementInfo {
   tagName: string;
   id?: string;
   classes: string[];
   selector: string;
   text: string;
+  /** Human-readable description of the element's purpose */
+  description?: string;
+  /** Parent elements with human-readable descriptions (immediate parent first) */
+  parentChain?: ParentChainItem[];
   attributes?: Record<string, string>;
   styles?: Record<string, string>;
   position?: { x: number; y: number; width: number; height: number };

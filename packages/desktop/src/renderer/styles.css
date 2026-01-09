@@ -307,6 +307,55 @@ body {
   word-break: break-all;
 }
 
+/* Element Description (human-readable) */
+.element-description {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+/* Hierarchy Breadcrumb */
+.hierarchy-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.hierarchy-item {
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.hierarchy-item.current {
+  background: var(--info);
+  color: #fff;
+  font-weight: 500;
+}
+
+.hierarchy-item.clickable {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hierarchy-item.clickable:hover {
+  background: var(--warning);
+  color: #000;
+}
+
+.hierarchy-separator {
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 0 2px;
+}
+
 /* Attributes List */
 .attribute-row {
   display: flex;
@@ -438,6 +487,16 @@ body {
 .empty-text {
   font-size: 12px;
   text-align: center;
+}
+
+.empty-hint {
+  font-size: 11px;
+  text-align: center;
+  margin-top: 8px;
+  padding: 4px 8px;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  color: var(--text-secondary);
 }
 
 .empty-state {
@@ -627,6 +686,30 @@ body {
 .panel-header-actions {
   display: flex;
   gap: 6px;
+  align-items: center;
+}
+
+/* Viewport preset dropdown */
+.viewport-select {
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.viewport-select:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.viewport-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
 /* Active state for console toggle */

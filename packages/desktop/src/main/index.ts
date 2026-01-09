@@ -793,6 +793,119 @@ ipcMain.handle('pty:resize', async (_event, cols: number, rows: number) => {
   ptyManager.resize(cols, rows);
 });
 
+/**
+ * Inject Ctrl+Click element capture listener into the browser.
+ * This allows users to quickly capture elements without toggling Inspect Mode.
+ */
+async function injectCtrlClickCapture() {
+  if (!browserView) return;
+
+  try {
+    await browserView.webContents.executeJavaScript(`
+      (function() {
+        // Skip if already injected
+        if (window.__claudeLensCtrlClickHandler) return;
+
+        window.__claudeLensCtrlClickHandler = function(e) {
+          // Only capture on Ctrl+Click (or Cmd+Click on Mac)
+          if (!e.ctrlKey && !e.metaKey) return;
+
+          e.preventDefault();
+          e.stopPropagation();
+
+          const el = e.target;
+
+          // Build selector
+          function getSelector(element) {
+            if (element.id) return '#' + element.id;
+            let selector = element.tagName.toLowerCase();
+            if (element.className && typeof element.className === 'string') {
+              const classes = element.className.trim().split(/\\s+/).filter(c => c);
+              if (classes.length) selector += '.' + classes.join('.');
+            }
+            const parent = element.parentElement;
+            if (parent) {
+              const siblings = Array.from(parent.children).filter(c => c.tagName === element.tagName);
+              if (siblings.length > 1) {
+                const index = siblings.indexOf(element) + 1;
+                selector += ':nth-child(' + index + ')';
+              }
+            }
+            return selector;
+          }
+
+          function getFullSelector(element) {
+            const parts = [];
+            let current = element;
+            while (current && current !== document.body) {
+              parts.unshift(getSelector(current));
+              if (current.id) break;
+              current = current.parentElement;
+            }
+            return parts.join(' > ');
+          }
+
+          // Get attributes
+          const attributes = {};
+          for (const attr of el.attributes) {
+            if (attr.name !== 'class' && attr.name !== 'id') {
+              attributes[attr.name] = attr.value;
+            }
+          }
+
+          // Get computed styles
+          const computed = window.getComputedStyle(el);
+          const styles = {
+            color: computed.color,
+            backgroundColor: computed.backgroundColor,
+            fontSize: computed.fontSize,
+            fontFamily: computed.fontFamily,
+            display: computed.display,
+            position: computed.position,
+          };
+
+          // Get position
+          const rect = el.getBoundingClientRect();
+          const position = {
+            x: rect.left,
+            y: rect.top,
+            width: rect.width,
+            height: rect.height,
+          };
+
+          const elementInfo = {
+            tagName: el.tagName.toLowerCase(),
+            id: el.id || undefined,
+            classes: el.className && typeof el.className === 'string'
+              ? el.className.trim().split(/\\s+/).filter(c => c)
+              : [],
+            selector: getFullSelector(el),
+            text: el.textContent?.slice(0, 100) || '',
+            attributes: attributes,
+            styles: styles,
+            position: position,
+          };
+
+          // Highlight briefly
+          document.querySelectorAll('.claude-lens-highlight').forEach(h => h.remove());
+          const highlight = document.createElement('div');
+          highlight.className = 'claude-lens-highlight';
+          highlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #10b981;background:rgba(16,185,129,0.1);pointer-events:none;z-index:999999;';
+          document.body.appendChild(highlight);
+          setTimeout(() => { highlight.style.opacity = '0'; setTimeout(() => highlight.remove(), 300); }, 2000);
+
+          // Send back to Electron
+          console.log('CLAUDE_LENS_CTRL_ELEMENT:' + JSON.stringify(elementInfo));
+        };
+
+        document.addEventListener('click', window.__claudeLensCtrlClickHandler, true);
+      })()
+    `);
+  } catch {
+    // Ignore injection errors
+  }
+}
+
 // Browser (embedded BrowserView) handlers
 ipcMain.handle('browser:navigate', async (_event, url: string) => {
   if (!mainWindow) return { success: false, error: 'Window not ready' };
@@ -815,6 +928,9 @@ ipcMain.handle('browser:navigate', async (_event, url: string) => {
 
     // Navigate to URL
     await browserView.webContents.loadURL(url);
+
+    // Inject Ctrl+Click capture support
+    await injectCtrlClickCapture();
 
     return { success: true };
   } catch (error) {
@@ -1194,10 +1310,21 @@ function setupBrowserViewMessaging() {
   if (!browserView || !mainWindow) return;
 
   browserView.webContents.on('console-message', (_event, level, message) => {
-    // Check if it's our element selection message
+    // Check if it's our element selection message (from Inspect Mode)
     if (message.startsWith('CLAUDE_LENS_ELEMENT:')) {
       try {
         const elementInfo = JSON.parse(message.replace('CLAUDE_LENS_ELEMENT:', ''));
+        mainWindow?.webContents.send('element-selected', elementInfo);
+      } catch {
+        // Ignore parse errors
+      }
+      return;
+    }
+
+    // Check if it's a Ctrl+Click element capture message
+    if (message.startsWith('CLAUDE_LENS_CTRL_ELEMENT:')) {
+      try {
+        const elementInfo = JSON.parse(message.replace('CLAUDE_LENS_CTRL_ELEMENT:', ''));
         mainWindow?.webContents.send('element-selected', elementInfo);
       } catch {
         // Ignore parse errors

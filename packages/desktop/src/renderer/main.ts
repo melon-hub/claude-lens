@@ -49,6 +49,7 @@ const urlInput = document.getElementById('urlInput') as HTMLInputElement;
 const goBtn = document.getElementById('goBtn') as HTMLButtonElement;
 const refreshBtn = document.getElementById('refreshBtn') as HTMLButtonElement;
 const statusEl = document.getElementById('status') as HTMLSpanElement;
+const viewportSelect = document.getElementById('viewportSelect') as HTMLSelectElement;
 
 // Elements - Panels
 const placeholder = document.getElementById('placeholder') as HTMLDivElement;
@@ -58,7 +59,11 @@ const inspectBtn = document.getElementById('inspectBtn') as HTMLButtonElement;
 
 // Elements - Context Panel
 const contextEmpty = document.getElementById('contextEmpty') as HTMLDivElement;
+const descriptionInfo = document.getElementById('descriptionInfo') as HTMLDivElement;
+const elementDescription = document.getElementById('elementDescription') as HTMLSpanElement;
 const elementInfo = document.getElementById('elementInfo') as HTMLDivElement;
+const hierarchyInfo = document.getElementById('hierarchyInfo') as HTMLDivElement;
+const hierarchyList = document.getElementById('hierarchyList') as HTMLDivElement;
 const pathInfo = document.getElementById('pathInfo') as HTMLDivElement;
 const attributesInfo = document.getElementById('attributesInfo') as HTMLDivElement;
 const stylesInfo = document.getElementById('stylesInfo') as HTMLDivElement;
@@ -124,6 +129,24 @@ let consoleDrawerOpen = false;
 
 // Console drawer height - 200px CSS + extra buffer for BrowserView bounds
 const DRAWER_HEIGHT = 235;
+
+// Viewport width constraint (0 = full width)
+let viewportWidth = 0;
+
+/**
+ * Update browser bounds with viewport constraint
+ * Call this whenever panel size changes or viewport preset changes
+ */
+function updateBrowserBounds() {
+  const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
+  const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
+
+  // Apply viewport width constraint
+  const panelWidth = browserPanel.offsetWidth;
+  const effectiveWidth = viewportWidth > 0 ? Math.min(viewportWidth, panelWidth) : panelWidth;
+
+  window.claudeLens.browser.updateBounds(effectiveWidth, drawerHeight);
+}
 
 // Console message buffer (last 50 messages)
 interface ConsoleMessage {
@@ -289,9 +312,7 @@ async function init() {
     }
     // Update browser bounds when window resizes
     if (browserLoaded) {
-      const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
-      const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
-      window.claudeLens.browser.updateBounds(browserPanel.offsetWidth, drawerHeight);
+      updateBrowserBounds();
     }
   });
 
@@ -329,9 +350,7 @@ async function init() {
   // Handle server ready event
   window.claudeLens.server.onReady((info) => {
     setStatus(`Server ready on port ${info.port}`, true);
-    const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
-    const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
-    window.claudeLens.browser.updateBounds(browserPanel.offsetWidth, drawerHeight);
+    updateBrowserBounds();
   });
 
   // Handle server exit event
@@ -368,7 +387,9 @@ function setupResizer(resizer: HTMLElement, panelClass: string, side: 'left' | '
       if (newWidth > 300 && newWidth < mainRect.width - 600) {
         panel.style.flex = `0 0 ${newWidth}px`;
         const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
-        window.claudeLens.browser.updateBounds(newWidth, drawerHeight);
+        // Apply viewport constraint to resize
+        const effectiveWidth = viewportWidth > 0 ? Math.min(viewportWidth, newWidth) : newWidth;
+        window.claudeLens.browser.updateBounds(effectiveWidth, drawerHeight);
       }
     } else {
       const newWidth = mainRect.right - e.clientX;
@@ -408,6 +429,14 @@ function updateContextPanel(element: ElementInfo) {
   elementInfo.classList.remove('hidden');
   pathInfo.classList.remove('hidden');
   textInfo.classList.remove('hidden');
+
+  // DESCRIPTION section - human-readable element description
+  if (element.description) {
+    descriptionInfo.classList.remove('hidden');
+    elementDescription.textContent = element.description;
+  } else {
+    descriptionInfo.classList.add('hidden');
+  }
 
   // ELEMENT section - build tag display
   let tagDisplay = `<${element.tagName}`;
@@ -464,6 +493,45 @@ function updateContextPanel(element: ElementInfo) {
     }
   } else {
     componentInfo.classList.add('hidden');
+  }
+
+  // HIERARCHY section - clickable parent chain
+  if (element.parentChain && element.parentChain.length > 0) {
+    hierarchyInfo.classList.remove('hidden');
+    hierarchyList.textContent = '';
+
+    // Show as breadcrumb: "This element" → parent → grandparent...
+    const breadcrumb = document.createElement('div');
+    breadcrumb.className = 'hierarchy-breadcrumb';
+
+    // Current element (first item, not clickable)
+    const currentItem = document.createElement('span');
+    currentItem.className = 'hierarchy-item current';
+    currentItem.textContent = element.description || element.tagName;
+    breadcrumb.appendChild(currentItem);
+
+    // Add parent chain items (clickable to highlight)
+    for (const parent of element.parentChain) {
+      const separator = document.createElement('span');
+      separator.className = 'hierarchy-separator';
+      separator.textContent = ' → ';
+      breadcrumb.appendChild(separator);
+
+      const parentItem = document.createElement('span');
+      parentItem.className = 'hierarchy-item clickable';
+      parentItem.textContent = parent.description;
+      parentItem.title = `Click to highlight: ${parent.selector}`;
+      parentItem.dataset.selector = parent.selector;
+      parentItem.addEventListener('click', () => {
+        // Highlight this parent element in the browser
+        window.claudeLens?.browser.highlight(parent.selector);
+      });
+      breadcrumb.appendChild(parentItem);
+    }
+
+    hierarchyList.appendChild(breadcrumb);
+  } else {
+    hierarchyInfo.classList.add('hidden');
   }
 
   // PATH section
@@ -731,9 +799,7 @@ goBtn.addEventListener('click', async () => {
   setStatus('Connected', true);
 
   // Update browser view bounds to match panel width
-  const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
-  const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
-  window.claudeLens.browser.updateBounds(browserPanel.offsetWidth, drawerHeight);
+  updateBrowserBounds();
 });
 
 urlInput.addEventListener('keypress', (e) => {
@@ -743,6 +809,23 @@ urlInput.addEventListener('keypress', (e) => {
 refreshBtn.addEventListener('click', async () => {
   if (!browserLoaded) return;
   await window.claudeLens.browser.navigate(urlInput.value);
+});
+
+// Viewport preset widths (0 = full width / no constraint)
+const viewportPresets: Record<string, number> = {
+  'full': 0,
+  'desktop': 1280,
+  'tablet-landscape': 1024,
+  'tablet': 768,
+  'mobile-large': 425,
+  'mobile': 375,
+};
+
+// Viewport preset change handler
+viewportSelect.addEventListener('change', () => {
+  const preset = viewportSelect.value;
+  viewportWidth = viewportPresets[preset] || 0;
+  updateBrowserBounds();
 });
 
 // Inspect mode toggle
@@ -781,9 +864,7 @@ consoleToggleBtn.addEventListener('click', () => {
   }
 
   // Update browser view bounds to account for drawer height
-  const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
-  const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
-  window.claudeLens.browser.updateBounds(browserPanel.offsetWidth, drawerHeight);
+  updateBrowserBounds();
 });
 
 // Console clear button

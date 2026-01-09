@@ -65,6 +65,10 @@ export class PlaywrightAdapter {
         throw new Error('Could not find matching page for BrowserView. The browser may not have loaded yet.');
       }
 
+      // Set shorter default timeout (5 seconds instead of 30)
+      // This gives faster feedback when selectors don't match
+      this.page.setDefaultTimeout(5000);
+
       console.log('[PlaywrightAdapter] Connected successfully to page:', this.page.url());
     } catch (error) {
       console.error('[PlaywrightAdapter] Connection failed:', error);
@@ -240,38 +244,90 @@ export class PlaywrightAdapter {
   async getAccessibilitySnapshot(): Promise<string> {
     const page = await this.ensureConnected();
 
-    // Use string-based evaluate to avoid TypeScript DOM type issues
+    // Optimized: Only return interactive elements in a flat, compact format
+    // This reduces output from ~14k tokens to ~500-1000 tokens
     const script = `
       (function() {
-        // Build a simplified accessibility tree from the DOM
-        function buildTree(element, depth) {
-          if (depth === undefined) depth = 0;
-          if (depth > 10) return null; // Limit depth
+        var elements = [];
+        var interactiveTags = ['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'LABEL', 'FORM'];
+        var interactiveRoles = ['button', 'link', 'textbox', 'checkbox', 'radio', 'combobox', 'listbox', 'menuitem', 'tab', 'switch'];
 
-          var role = element.getAttribute('role') || element.tagName.toLowerCase();
-          var label =
-            element.getAttribute('aria-label') ||
-            element.getAttribute('alt') ||
-            element.getAttribute('title') ||
-            (element.textContent ? element.textContent.trim().slice(0, 50) : '');
-
-          var children = [];
-          for (var i = 0; i < element.children.length; i++) {
-            var childTree = buildTree(element.children[i], depth + 1);
-            if (childTree) children.push(childTree);
+        function getSelector(el) {
+          if (el.id) return '#' + el.id;
+          if (el.name) return el.tagName.toLowerCase() + '[name="' + el.name + '"]';
+          if (el.className && typeof el.className === 'string') {
+            var classes = el.className.trim().split(/\\s+/).slice(0, 2).join('.');
+            if (classes) return el.tagName.toLowerCase() + '.' + classes;
           }
-
-          var result = { role: role, name: label };
-          if (children.length > 0) result.children = children;
-          return result;
+          // Generate a path-based selector for elements without good identifiers
+          var path = [];
+          var current = el;
+          while (current && current !== document.body && path.length < 3) {
+            var tag = current.tagName.toLowerCase();
+            var parent = current.parentElement;
+            if (parent) {
+              var siblings = Array.from(parent.children).filter(function(c) { return c.tagName === current.tagName; });
+              if (siblings.length > 1) {
+                var idx = siblings.indexOf(current) + 1;
+                tag += ':nth-of-type(' + idx + ')';
+              }
+            }
+            path.unshift(tag);
+            current = parent;
+          }
+          return path.join(' > ');
         }
 
-        return buildTree(document.body);
+        function getText(el) {
+          var text = el.getAttribute('aria-label') ||
+                     el.getAttribute('placeholder') ||
+                     el.getAttribute('title') ||
+                     el.getAttribute('alt') ||
+                     (el.textContent || '').trim();
+          return text.slice(0, 30).replace(/\\s+/g, ' ');
+        }
+
+        document.querySelectorAll('*').forEach(function(el) {
+          var tag = el.tagName;
+          var role = el.getAttribute('role');
+          var isInteractive = interactiveTags.includes(tag) ||
+                              interactiveRoles.includes(role) ||
+                              el.hasAttribute('onclick') ||
+                              el.hasAttribute('tabindex');
+
+          if (!isInteractive) return;
+          if (!el.offsetParent && tag !== 'BODY') return; // Skip hidden
+
+          var info = { s: getSelector(el), t: tag.toLowerCase() };
+          var text = getText(el);
+          if (text) info.n = text;
+          if (el.type) info.type = el.type;
+          if (el.value && el.value.length < 30) info.v = el.value;
+          if (el.disabled) info.disabled = true;
+          if (el.checked) info.checked = true;
+
+          elements.push(info);
+        });
+
+        return elements.slice(0, 100); // Max 100 elements
       })()
     `;
 
     const snapshot = await page.evaluate(script);
-    return JSON.stringify(snapshot, null, 2);
+
+    // Format as compact, readable list
+    const elements = snapshot as Array<{s: string; t: string; n?: string; type?: string; v?: string; disabled?: boolean; checked?: boolean}>;
+    const lines = elements.map((el, i) => {
+      let line = `${i + 1}. [${el.t}] "${el.s}"`;
+      if (el.n) line += ` "${el.n}"`;
+      if (el.type) line += ` (${el.type})`;
+      if (el.v) line += ` value="${el.v}"`;
+      if (el.disabled) line += ' [disabled]';
+      if (el.checked) line += ' [checked]';
+      return line;
+    });
+
+    return `Interactive elements (${elements.length}):\n${lines.join('\n')}`;
   }
 
   /**

@@ -76,6 +76,7 @@ export interface ClaudeLensAPI {
     onOutput: (callback: (data: string) => void) => void;
     onReady: (callback: (info: { port: number }) => void) => void;
     onExit: (callback: (info: { code: number }) => void) => void;
+    onProgress: (callback: (progress: { elapsed: number; status: string; phase: string }) => void) => void;
   };
   sendToClaude: (prompt: string, elementContext: string) => Promise<{ success: boolean }>;
 }

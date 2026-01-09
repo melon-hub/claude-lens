@@ -25,12 +25,19 @@ export interface DevServerError {
   raw: string;
 }
 
+export interface DevServerProgress {
+  elapsed: number;      // Seconds elapsed
+  status: string;       // Human-readable status
+  phase: 'starting' | 'installing' | 'building' | 'waiting' | 'ready' | 'error';
+}
+
 export class DevServerManager {
   private server: DevServerState | null = null;
   private onOutputCallback: ((data: string) => void) | null = null;
   private onReadyCallback: (() => void) | null = null;
   private onExitCallback: ((code: number) => void) | null = null;
   private onErrorCallback: ((error: DevServerError) => void) | null = null;
+  private onProgressCallback: ((progress: DevServerProgress) => void) | null = null;
 
   /**
    * Start a dev server in the given project directory
@@ -263,11 +270,30 @@ export class DevServerManager {
   /**
    * Wait for the server to become available
    * First tries to detect the actual port from output, then checks if it's open
+   * Emits progress updates every second
    */
   private async waitForPort(suggestedPort: number, timeout: number): Promise<void> {
     const start = Date.now();
+    let lastProgressUpdate = 0;
+
+    // Emit initial progress
+    this.onProgressCallback?.({
+      elapsed: 0,
+      status: 'Starting dev server...',
+      phase: 'starting',
+    });
 
     while (Date.now() - start < timeout) {
+      const elapsed = Math.floor((Date.now() - start) / 1000);
+
+      // Emit progress update every second
+      if (elapsed > lastProgressUpdate) {
+        lastProgressUpdate = elapsed;
+        const phase = this.detectPhaseFromOutput();
+        const status = this.getStatusMessage(phase, elapsed, suggestedPort);
+        this.onProgressCallback?.({ elapsed, status, phase });
+      }
+
       // Check if we detected the actual port from output
       const portToCheck = this.server?.actualPort || suggestedPort;
 
@@ -276,6 +302,12 @@ export class DevServerManager {
         if (this.server && !this.server.actualPort) {
           this.server.actualPort = portToCheck;
         }
+        // Emit ready progress
+        this.onProgressCallback?.({
+          elapsed: Math.floor((Date.now() - start) / 1000),
+          status: `Server ready on port ${portToCheck}`,
+          phase: 'ready',
+        });
         return;
       }
 
@@ -283,6 +315,11 @@ export class DevServerManager {
       // try that port directly
       if (this.server?.actualPort && this.server.actualPort !== suggestedPort) {
         if (await this.isPortOpen(this.server.actualPort)) {
+          this.onProgressCallback?.({
+            elapsed: Math.floor((Date.now() - start) / 1000),
+            status: `Server ready on port ${this.server.actualPort}`,
+            phase: 'ready',
+          });
           return;
         }
       }
@@ -291,7 +328,54 @@ export class DevServerManager {
     }
 
     const portTried = this.server?.actualPort || suggestedPort;
+    this.onProgressCallback?.({
+      elapsed: Math.floor((Date.now() - start) / 1000),
+      status: `Timeout waiting for port ${portTried}`,
+      phase: 'error',
+    });
     throw new Error(`Server did not start on port ${portTried} within ${timeout}ms`);
+  }
+
+  /**
+   * Detect current phase from server output
+   */
+  private detectPhaseFromOutput(): DevServerProgress['phase'] {
+    const recentOutput = this.server?.output.slice(-10).join('') || '';
+
+    if (recentOutput.includes('npm install') || recentOutput.includes('installing')) {
+      return 'installing';
+    }
+    if (recentOutput.includes('building') || recentOutput.includes('compiling') ||
+        recentOutput.includes('transforming') || recentOutput.includes('bundling')) {
+      return 'building';
+    }
+    if (this.server?.ready) {
+      return 'ready';
+    }
+    if (this.server?.errors.length) {
+      return 'error';
+    }
+    return 'waiting';
+  }
+
+  /**
+   * Get human-readable status message
+   */
+  private getStatusMessage(phase: DevServerProgress['phase'], elapsed: number, port: number): string {
+    switch (phase) {
+      case 'installing':
+        return `Installing dependencies... (${elapsed}s)`;
+      case 'building':
+        return `Building project... (${elapsed}s)`;
+      case 'waiting':
+        return `Waiting for server on port ${port}... (${elapsed}s)`;
+      case 'ready':
+        return `Server ready!`;
+      case 'error':
+        return `Error occurred (${elapsed}s)`;
+      default:
+        return `Starting... (${elapsed}s)`;
+    }
   }
 
   /**
@@ -365,6 +449,13 @@ export class DevServerManager {
    */
   setOnError(callback: (error: DevServerError) => void): void {
     this.onErrorCallback = callback;
+  }
+
+  /**
+   * Set callback for progress updates (elapsed time, status)
+   */
+  setOnProgress(callback: (progress: DevServerProgress) => void): void {
+    this.onProgressCallback = callback;
   }
 
   /**

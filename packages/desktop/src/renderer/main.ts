@@ -281,18 +281,27 @@ async function init() {
     }
   });
 
-  // Handle resize
+  // Handle resize with debounce to prevent artifacts
+  let resizeTimeout: number | null = null;
   window.addEventListener('resize', () => {
-    fitAddon.fit();
-    if (claudeRunning) {
-      window.claudeLens.pty.resize(terminal.cols, terminal.rows);
+    // Debounce resize to prevent rapid redraws
+    if (resizeTimeout) {
+      clearTimeout(resizeTimeout);
     }
-    // Update browser bounds when window resizes
-    if (browserLoaded) {
-      const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
-      const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
-      window.claudeLens.browser.updateBounds(browserPanel.offsetWidth, drawerHeight);
-    }
+    resizeTimeout = window.setTimeout(() => {
+      fitAddon.fit();
+      // Force full terminal refresh to clear rendering artifacts
+      terminal.refresh(0, terminal.rows - 1);
+      if (claudeRunning) {
+        window.claudeLens.pty.resize(terminal.cols, terminal.rows);
+      }
+      // Update browser bounds when window resizes
+      if (browserLoaded) {
+        const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
+        const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
+        window.claudeLens.browser.updateBounds(browserPanel.offsetWidth, drawerHeight);
+      }
+    }, 100);
   });
 
   // Set up resizers
@@ -337,6 +346,13 @@ async function init() {
   // Handle server exit event
   window.claudeLens.server.onExit((info) => {
     setStatus(`Server exited (code ${info.code})`);
+  });
+
+  // Handle server progress updates (shows timer during startup)
+  window.claudeLens.server.onProgress((progress) => {
+    // Show progress in status bar with elapsed time
+    const isReady = progress.phase === 'ready';
+    setStatus(progress.status, isReady);
   });
 }
 
@@ -384,6 +400,11 @@ function setupResizer(resizer: HTMLElement, panelClass: string, side: 'left' | '
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       fitAddon.fit();
+      // Force terminal refresh to clear rendering artifacts after panel resize
+      terminal.refresh(0, terminal.rows - 1);
+      if (claudeRunning) {
+        window.claudeLens.pty.resize(terminal.cols, terminal.rows);
+      }
     }
   });
 }

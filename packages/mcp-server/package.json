@@ -1,6 +1,6 @@
 {
   "name": "@claude-lens/mcp-server",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "description": "MCP server for Claude Lens - provides tools for element inspection and highlighting",
   "main": "./dist/index.js",
   "bin": {

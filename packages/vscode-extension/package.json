@@ -2,7 +2,7 @@
   "name": "claude-lens-vscode",
   "displayName": "Claude Lens",
   "description": "Visual web development companion for Claude Code",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "melon-hub",
   "engines": {
     "vscode": "^1.85.0"

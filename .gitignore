@@ -35,3 +35,7 @@ tmp/
 # Local MCP configs (may contain absolute paths)
 .mcp.json
 packages/*/.mcp.json
+
+# Claude Code local settings
+.claude/
+packages/*/.claude/

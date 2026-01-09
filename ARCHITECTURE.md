@@ -104,21 +104,24 @@ The MCP server runs as a separate process from the UI host. They communicate via
 - HTTP is simple, debuggable, and works across process boundaries
 - Localhost-only binding ensures security
 
-### Chrome DevTools Protocol (CDP)
+### Chrome DevTools Protocol (CDP) + Playwright
 
-Claude Lens controls the browser via CDP rather than Puppeteer:
+Claude Lens uses Playwright connected via CDP to Electron's embedded browser:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| CDP Direct | Full DevTools API, minimal abstraction, fine control | Lower-level API |
-| Puppeteer | Higher-level API, more familiar | Extra dependency, abstracts away useful CDP features |
+| Layer | Purpose |
+|-------|---------|
+| **Electron BrowserView** | Embedded browser the user sees |
+| **CDP (:9222)** | Debug protocol exposed by Chromium |
+| **Playwright** | High-level automation API connected via `connectOverCDP()` |
+| **MCP Tools** | 25+ tools exposed to Claude Code |
 
-CDP provides:
-- DOM inspection with computed styles
+This architecture provides:
+- DOM inspection with computed styles and accessibility tree
+- Full automation: click, fill, type, hover, drag, scroll, keyboard
 - JavaScript execution
 - Console message interception
-- Screenshot capture
-- Network monitoring (future)
+- Screenshot capture (viewport or element)
+- Dialog handling (alert, confirm, prompt)
 
 ## Data Flow Examples
 
@@ -144,10 +147,25 @@ CDP provides:
 ```
 1. Claude calls claude_lens/screenshot tool
 2. MCP server sends POST /screenshot to bridge
-3. Bridge server calls CDPAdapter.screenshot()
-4. CDP Page.captureScreenshot → base64 PNG
+3. Bridge server calls PlaywrightAdapter.screenshot()
+4. Playwright page.screenshot() → base64 PNG
 5. Response flows back: Bridge → MCP → Claude
 6. Claude "sees" the image via MCP image content
+```
+
+### Claude Fills a Form (Automation)
+
+```
+1. Claude calls claude_lens/fill { selector: "#email", value: "test@example.com" }
+2. MCP server sends POST /fill to bridge
+3. Bridge server calls PlaywrightAdapter.fill()
+4. Playwright page.fill("#email", "test@example.com")
+   - Waits for element (5s timeout)
+   - Clears existing value
+   - Types new value
+   - Dispatches input/change events (React-compatible)
+5. Response: "Filled email field with 'test@example.com'"
+6. User sees the form field filled in the embedded browser
 ```
 
 ## Security Model
@@ -215,17 +233,36 @@ if (!isAllowedUrl(url)) {
 | Embedded BrowserView | Chosen | Seamless integration, visible alongside code |
 | iframe | Rejected | Security restrictions, limited access |
 
-### Why Not Playwright?
+### Why Playwright (via CDP)?
 
-Playwright is designed for automation, not inspection:
-- Heavyweight dependency
-- Abstracts away CDP features we need
-- Designed for headless, not embedded use
+**Update (v0.2.1):** We now use Playwright connected via CDP to Electron's embedded browser.
 
-CDP direct access gives us:
-- Precise control over DOM inspection
-- Access to computed styles and box model
-- Future: Network interception, performance profiling
+| Approach | Verdict | Reasoning |
+|----------|---------|-----------|
+| Raw CDP only | Rejected | Too low-level, would require reimplementing Playwright |
+| Playwright (launch) | Rejected | Creates separate browser, not embedded |
+| **Playwright (CDP connect)** | **Chosen** | Best of both worlds |
+
+How it works:
+```
+Electron BrowserView
+        │
+        ▼ (--remote-debugging-port=9222)
+   CDP Endpoint
+        │
+        ▼ (playwright.chromium.connectOverCDP)
+  Playwright Page
+        │
+        ▼ (page.click, page.fill, page.screenshot, etc.)
+   25+ MCP Tools
+```
+
+Benefits:
+- **Full automation API:** click, fill, type, hover, drag, scroll, keyboard
+- **Embedded browser:** Playwright controls the same BrowserView user sees
+- **DOM inspection:** Access computed styles, accessibility tree
+- **Reliable selectors:** Playwright's smart waiting and retry logic
+- **5s default timeout:** Fast failure feedback instead of 30s waits
 
 ### Why TypeScript Strict Mode?
 

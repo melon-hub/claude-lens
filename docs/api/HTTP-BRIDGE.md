@@ -260,6 +260,234 @@ Reload the current page.
 
 ---
 
+## Playwright-Powered Endpoints (v0.2.1+)
+
+The following endpoints are powered by Playwright connected via CDP to Electron's BrowserView.
+
+### POST /click
+
+Click an element.
+
+```json
+{
+  "selector": "#submit-btn",
+  "button": "left",
+  "clickCount": 1
+}
+```
+
+---
+
+### POST /fill
+
+Fill an input field (clears first).
+
+```json
+{
+  "selector": "#email",
+  "value": "test@example.com"
+}
+```
+
+---
+
+### POST /type
+
+Type text character by character.
+
+```json
+{
+  "selector": "#search",
+  "text": "hello world",
+  "clearFirst": false,
+  "delay": 50
+}
+```
+
+---
+
+### POST /hover
+
+Hover over an element.
+
+```json
+{
+  "selector": ".tooltip-trigger"
+}
+```
+
+---
+
+### POST /select_option
+
+Select dropdown option(s).
+
+```json
+{
+  "selector": "#country",
+  "values": ["us"]
+}
+```
+
+---
+
+### POST /press_key
+
+Press a keyboard key.
+
+```json
+{
+  "key": "Enter",
+  "selector": "#search-input"
+}
+```
+
+---
+
+### POST /drag_and_drop
+
+Drag element to target.
+
+```json
+{
+  "source": ".draggable",
+  "target": ".dropzone"
+}
+```
+
+---
+
+### POST /scroll
+
+Scroll page or element into view.
+
+```json
+{
+  "selector": "#footer"
+}
+```
+
+Or scroll by pixels:
+
+```json
+{
+  "x": 0,
+  "y": 500
+}
+```
+
+---
+
+### POST /wait_for
+
+Wait for element to appear.
+
+```json
+{
+  "selector": ".loading-complete",
+  "timeout": 5000,
+  "visible": true
+}
+```
+
+---
+
+### POST /wait_for_response
+
+Wait for network response.
+
+```json
+{
+  "urlPattern": "/api/users",
+  "timeout": 30000
+}
+```
+
+---
+
+### POST /get_text
+
+Get element text content.
+
+```json
+{
+  "selector": ".message"
+}
+```
+
+---
+
+### POST /get_attribute
+
+Get element attribute.
+
+```json
+{
+  "selector": "a.link",
+  "attribute": "href"
+}
+```
+
+---
+
+### POST /is_visible, /is_enabled, /is_checked
+
+Check element state.
+
+```json
+{
+  "selector": "#submit-btn"
+}
+```
+
+---
+
+### POST /go_back, /go_forward
+
+Browser history navigation.
+
+**Request:** Empty body
+
+---
+
+### POST /handle_dialog
+
+Set dialog handler (alert/confirm/prompt).
+
+```json
+{
+  "action": "accept"
+}
+```
+
+---
+
+### POST /evaluate
+
+Execute JavaScript in page.
+
+```json
+{
+  "script": "document.title"
+}
+```
+
+---
+
+### GET /browser_snapshot
+
+Get compact accessibility snapshot.
+
+**Response:**
+```
+Interactive elements (42):
+1. [button] "#submit-btn" "Submit"
+2. [input] "input[name=email]" "Email" (email)
+...
+```
+
+---
+
 ## Error Handling
 
 All endpoints return HTTP 500 on error:

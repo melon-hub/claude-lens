@@ -10,6 +10,7 @@
 import { app, BrowserWindow, BrowserView, ipcMain, shell, dialog, clipboard } from 'electron';
 import * as path from 'path';
 import { PtyManager } from './pty-manager';
+import { startMCPServer, stopMCPServer, setBrowserView, setConsoleBuffer } from './mcp-server';
 
 // Enable hot reload in development
 if (process.env.NODE_ENV === 'development') {
@@ -47,6 +48,15 @@ process.on('uncaughtException', (error) => {
 let mainWindow: BrowserWindow | null = null;
 let browserView: BrowserView | null = null;
 let ptyManager: PtyManager | null = null;
+
+// Console message buffer for MCP server
+interface ConsoleMessage {
+  level: string;
+  message: string;
+  timestamp: number;
+}
+const consoleBuffer: ConsoleMessage[] = [];
+const MAX_CONSOLE_MESSAGES = 100;
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -96,11 +106,17 @@ function updateBrowserViewBounds(panelWidth?: number, drawerHeight?: number) {
 
   const bounds = mainWindow.getBounds();
   const headerHeight = 45;
-  const panelHeaderHeight = 32;
+  const panelHeaderHeight = 38; // padding 8px*2 + font ~18px + border 1px
 
-  // Use provided width or calculate default (40% for browser, 280px context, rest for terminal)
+  // Calculate browser panel width based on CSS flex layout:
+  // browser-panel: flex 1 1 40%, context-panel: 280px fixed, claude-panel: flex 1 1 40%
+  // Resizers: 4px each (8px total)
   const contextPanelWidth = 280;
-  const width = panelWidth || browserPanelWidth || Math.floor((bounds.width - contextPanelWidth - 8) * 0.5);
+  const resizerWidth = 8;
+  const availableWidth = bounds.width - contextPanelWidth - resizerWidth;
+  // Browser panel gets ~50% of remaining space (equal with claude panel)
+  const defaultWidth = Math.floor(availableWidth * 0.5);
+  const width = panelWidth || browserPanelWidth || defaultWidth;
 
   // Subtract console drawer height if open
   const effectiveDrawerHeight = drawerHeight !== undefined ? drawerHeight : consoleDrawerHeight;
@@ -274,6 +290,8 @@ ipcMain.handle('browser:navigate', async (_event, url: string) => {
       mainWindow.setBrowserView(browserView);
       updateBrowserViewBounds();
       setupBrowserViewMessaging();
+      // Pass reference to MCP server
+      setBrowserView(browserView);
     }
 
     // Navigate to URL
@@ -578,7 +596,16 @@ function setupBrowserViewMessaging() {
     // level: 0=log, 1=warning, 2=error, 3=info
     const levelMap: Record<number, string> = { 0: 'log', 1: 'warn', 2: 'error', 3: 'info' };
     const levelName = levelMap[level] || 'log';
-    mainWindow?.webContents.send('console-message', { level: levelName, message, timestamp: Date.now() });
+    const consoleMsg = { level: levelName, message, timestamp: Date.now() };
+
+    // Send to renderer
+    mainWindow?.webContents.send('console-message', consoleMsg);
+
+    // Add to buffer for MCP server
+    consoleBuffer.push(consoleMsg);
+    if (consoleBuffer.length > MAX_CONSOLE_MESSAGES) {
+      consoleBuffer.shift();
+    }
   });
 }
 
@@ -613,6 +640,15 @@ app.whenReady().then(async () => {
   await createWindow();
   setupPtyForwarding();
 
+  // Start MCP server for Claude Code integration
+  setConsoleBuffer(consoleBuffer);
+  try {
+    const port = await startMCPServer();
+    console.log(`MCP server started on port ${port}`);
+  } catch (err) {
+    console.error('Failed to start MCP server:', err);
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -621,6 +657,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  stopMCPServer();
   if (process.platform !== 'darwin') {
     app.quit();
   }

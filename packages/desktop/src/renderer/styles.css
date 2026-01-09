@@ -149,6 +149,7 @@ body {
 .browser-panel {
   flex: 1 1 40%;
   min-width: 300px;
+  position: relative;
 }
 
 .context-panel {
@@ -591,11 +592,7 @@ body {
   font-size: 10px;
 }
 
-/* Browser panel needs relative positioning for drawer */
-.browser-panel {
-  position: relative;
-}
-
+/* Browser panel content needs relative for console drawer */
 .browser-panel .panel-content {
   position: relative;
 }

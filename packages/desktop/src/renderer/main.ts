@@ -80,6 +80,9 @@ let inspectMode = false;
 let selectedElements: ElementInfo[] = [];
 let consoleDrawerOpen = false;
 
+// Console drawer height - 200px CSS + extra buffer for BrowserView bounds
+const DRAWER_HEIGHT = 235;
+
 // Console message buffer (last 50 messages)
 interface ConsoleMessage {
   level: string;
@@ -172,7 +175,7 @@ function setupResizer(resizer: HTMLElement, panelClass: string, side: 'left' | '
       const newWidth = e.clientX - mainRect.left;
       if (newWidth > 300 && newWidth < mainRect.width - 600) {
         panel.style.flex = `0 0 ${newWidth}px`;
-        const drawerHeight = consoleDrawerOpen ? 200 : 0;
+        const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
         window.claudeLens.browser.updateBounds(newWidth, drawerHeight);
       }
     } else {
@@ -494,7 +497,7 @@ goBtn.addEventListener('click', async () => {
 
   // Update browser view bounds to match panel width
   const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
-  const drawerHeight = consoleDrawerOpen ? 200 : 0;
+  const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
   window.claudeLens.browser.updateBounds(browserPanel.offsetWidth, drawerHeight);
 });
 
@@ -530,8 +533,6 @@ inspectBtn.addEventListener('click', async () => {
 });
 
 // Console drawer toggle
-const DRAWER_HEIGHT = 200; // Match CSS .console-drawer height
-
 consoleToggleBtn.addEventListener('click', () => {
   consoleDrawerOpen = !consoleDrawerOpen;
 
@@ -628,13 +629,12 @@ sendPromptBtn.addEventListener('click', async () => {
     return ctx;
   }).join('\n---\n\n');
 
-  // Build full context with page info and console
+  // Build full context with page info (no console - use drawer for that)
   const pageContext = pageURL ? `**Page:** ${pageURL}\n\n` : '';
-  const consoleContext = getConsoleContext();
 
   // If no prompt, use a default instruction
   const finalPrompt = prompt || 'Here is the element I selected:';
-  const fullPrompt = `${finalPrompt}\n\n${pageContext}${elementContexts}${consoleContext}`;
+  const fullPrompt = `${finalPrompt}\n\n${pageContext}${elementContexts}`;
   const result = await window.claudeLens.sendToClaude(fullPrompt, '');
 
   if (result.success) {

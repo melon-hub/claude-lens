@@ -12,6 +12,7 @@
 import type {
   BrowserAdapter,
   ElementInfo,
+  FrameworkInfo,
   NavigateOptions,
   NavigateResult,
   HighlightOptions,
@@ -232,6 +233,117 @@ export class CDPAdapter implements BrowserAdapter {
     return this.getElementInfo(nodeId);
   }
 
+  /**
+   * Detect React/Vue/Svelte/Angular component info for an element
+   */
+  private async detectFramework(x: number, y: number): Promise<FrameworkInfo | undefined> {
+    if (!this.client) return undefined;
+
+    const result = await this.client.Runtime.evaluate({
+      expression: `
+        (function() {
+          const el = document.elementFromPoint(${x}, ${y});
+          if (!el) return null;
+
+          // Detect React
+          const reactFiberKey = Object.keys(el).find(k =>
+            k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$')
+          );
+          if (reactFiberKey) {
+            let fiber = el[reactFiberKey];
+            let componentName = null;
+            let componentFile = null;
+
+            // Walk up fiber tree to find component
+            while (fiber) {
+              if (fiber.type && typeof fiber.type === 'function') {
+                componentName = fiber.type.displayName || fiber.type.name || 'Anonymous';
+                // Try to get source file from _debugSource
+                if (fiber._debugSource) {
+                  componentFile = fiber._debugSource.fileName;
+                }
+                break;
+              }
+              // Also check for forwardRef/memo wrapped components
+              if (fiber.type && fiber.type.$$typeof) {
+                const inner = fiber.type.render || fiber.type.type;
+                if (inner && typeof inner === 'function') {
+                  componentName = inner.displayName || inner.name || 'Anonymous';
+                  break;
+                }
+              }
+              fiber = fiber.return;
+            }
+
+            // Try to get props (safely)
+            let props = null;
+            try {
+              if (fiber && fiber.memoizedProps) {
+                props = JSON.parse(JSON.stringify(fiber.memoizedProps, (key, value) => {
+                  if (typeof value === 'function') return '[Function]';
+                  if (value instanceof Element) return '[Element]';
+                  return value;
+                }));
+              }
+            } catch (e) {}
+
+            return {
+              name: 'react',
+              componentName,
+              componentFile,
+              props
+            };
+          }
+
+          // Detect Vue 3
+          if (el.__vueParentComponent || el._vnode) {
+            const instance = el.__vueParentComponent;
+            let componentName = null;
+            if (instance && instance.type) {
+              componentName = instance.type.name || instance.type.__name || 'Anonymous';
+            }
+            return {
+              name: 'vue',
+              componentName
+            };
+          }
+
+          // Detect Vue 2
+          if (el.__vue__) {
+            const componentName = el.__vue__.$options.name || el.__vue__.$options._componentTag || 'Anonymous';
+            return {
+              name: 'vue',
+              componentName
+            };
+          }
+
+          // Detect Svelte
+          const svelteKey = Object.keys(el).find(k => k.startsWith('__svelte'));
+          if (svelteKey) {
+            return {
+              name: 'svelte',
+              componentName: 'SvelteComponent'
+            };
+          }
+
+          // Detect Angular
+          if (el.getAttribute && el.getAttribute('ng-version')) {
+            return { name: 'angular' };
+          }
+          const ngKey = Object.keys(el).find(k => k.startsWith('__ng'));
+          if (ngKey) {
+            return { name: 'angular' };
+          }
+
+          return null;
+        })()
+      `,
+      returnByValue: true,
+    });
+
+    return (result.result.value as FrameworkInfo) || undefined;
+  }
+
   private async getElementInfo(nodeId: number): Promise<ElementInfo> {
     if (!this.client) throw new Error('Not connected');
 
@@ -296,6 +408,9 @@ export class CDPAdapter implements BrowserAdapter {
     const classAttr = attributes['class'] ?? '';
     const classes = classAttr.split(' ').filter(Boolean);
 
+    // Detect React/Vue/Svelte/Angular component
+    const framework = await this.detectFramework(content[0] ?? 0, content[1] ?? 0);
+
     return {
       selector: String(selectorResult.result.value ?? ''),
       xpath: '',
@@ -326,6 +441,7 @@ export class CDPAdapter implements BrowserAdapter {
       parentChain: [],
       siblingCount: 0,
       childCount: node.childNodeCount ?? 0,
+      framework,
     };
   }
 

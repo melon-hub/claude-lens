@@ -9,6 +9,14 @@ export interface BoundingBox {
   height: number;
 }
 
+export interface FrameworkInfo {
+  name: 'react' | 'vue' | 'svelte' | 'angular' | 'unknown';
+  componentName?: string;
+  componentFile?: string;
+  props?: Record<string, unknown>;
+  state?: Record<string, unknown>;
+}
+
 export interface ElementInfo {
   selector: string;
   xpath: string;
@@ -23,6 +31,8 @@ export interface ElementInfo {
   parentChain: string[];
   siblingCount: number;
   childCount: number;
+  // Framework detection (React, Vue, Svelte, etc.)
+  framework?: FrameworkInfo;
 }
 
 export interface ComputedStyles {

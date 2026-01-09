@@ -145,6 +145,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: 'claude_lens/reload',
+        description:
+          'Reload the browser page. Use this after making code changes to see the updated result.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
     ],
   };
 });
@@ -302,6 +311,18 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
               type: 'image',
               data: imageData,
               mimeType: 'image/png',
+            },
+          ],
+        };
+      }
+
+      case 'claude_lens/reload': {
+        await bridge.reload();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Page reloaded successfully. Take a screenshot to see the updated page.',
             },
           ],
         };

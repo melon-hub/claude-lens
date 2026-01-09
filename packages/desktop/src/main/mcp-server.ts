@@ -6,6 +6,7 @@
  * - get_console_logs: Get recent console messages
  * - get_element_info: Get info about an element by selector
  * - get_page_dom: Get simplified DOM structure
+ * - get_screenshot: Capture a screenshot of the current page
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
@@ -93,6 +94,20 @@ const tools = [
         maxDepth: {
           type: 'number',
           description: 'Maximum depth to traverse (default: 3)',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_screenshot',
+    description: 'Capture a screenshot of the current browser page. Returns base64-encoded PNG image.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fullPage: {
+          type: 'boolean',
+          description: 'Capture full scrollable page (default: false, captures visible viewport only)',
         },
       },
       required: [],
@@ -209,6 +224,26 @@ async function handleGetPageDom(maxDepth = 3): Promise<unknown> {
   }
 }
 
+async function handleGetScreenshot(fullPage = false): Promise<{ image: string; width: number; height: number } | { error: string }> {
+  if (!browserViewRef) return { error: 'No browser view available' };
+
+  try {
+    // For full page, we need to scroll and capture, but for now just do viewport
+    const image = await browserViewRef.webContents.capturePage();
+    const pngBuffer = image.toPNG();
+    const base64 = pngBuffer.toString('base64');
+    const size = image.getSize();
+
+    return {
+      image: base64,
+      width: size.width,
+      height: size.height,
+    };
+  } catch (err) {
+    return { error: String(err) };
+  }
+}
+
 // Handle MCP requests
 async function handleRequest(request: MCPRequest): Promise<MCPResponse> {
   const { id, method, params } = request;
@@ -221,7 +256,7 @@ async function handleRequest(request: MCPRequest): Promise<MCPResponse> {
           id,
           result: {
             protocolVersion: '2024-11-05',
-            serverInfo: { name: 'claude-lens', version: '0.1.1' },
+            serverInfo: { name: 'claude-lens', version: '0.1.6' },
             capabilities: { tools: {} },
           },
         };
@@ -251,6 +286,32 @@ async function handleRequest(request: MCPRequest): Promise<MCPResponse> {
           case 'get_page_dom':
             result = await handleGetPageDom(toolArgs.maxDepth as number | undefined);
             break;
+          case 'get_screenshot': {
+            const screenshotResult = await handleGetScreenshot(toolArgs.fullPage as boolean | undefined);
+            if ('error' in screenshotResult) {
+              result = screenshotResult;
+            } else {
+              // Return as image content for Claude to see
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [
+                    {
+                      type: 'image',
+                      data: screenshotResult.image,
+                      mimeType: 'image/png',
+                    },
+                    {
+                      type: 'text',
+                      text: `Screenshot captured: ${screenshotResult.width}x${screenshotResult.height}px`,
+                    },
+                  ],
+                },
+              };
+            }
+            break;
+          }
           default:
             return {
               jsonrpc: '2.0',

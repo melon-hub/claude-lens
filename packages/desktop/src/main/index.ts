@@ -11,6 +11,8 @@ import { app, BrowserWindow, BrowserView, ipcMain, shell, dialog, clipboard } fr
 import * as path from 'path';
 import { PtyManager } from './pty-manager';
 import { startMCPServer, stopMCPServer, setBrowserView, setConsoleBuffer } from './mcp-server';
+import { BridgeServer } from '@claude-lens/core';
+import { createBridgeHandler } from './bridge-handler';
 
 // Enable hot reload in development
 if (process.env.NODE_ENV === 'development') {
@@ -48,6 +50,7 @@ process.on('uncaughtException', (error) => {
 let mainWindow: BrowserWindow | null = null;
 let browserView: BrowserView | null = null;
 let ptyManager: PtyManager | null = null;
+let bridgeServer: BridgeServer | null = null;
 
 // Console message buffer for MCP server
 interface ConsoleMessage {
@@ -363,6 +366,92 @@ ipcMain.handle('browser:inspect', async (_event, x: number, y: number) => {
           return parts.join(' > ');
         }
 
+        // Detect React component info
+        function getReactInfo(element) {
+          // Find React fiber key on element
+          const fiberKey = Object.keys(element).find(key =>
+            key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')
+          );
+          if (!fiberKey) return null;
+
+          const fiber = element[fiberKey];
+          if (!fiber) return null;
+
+          // Walk up fiber tree to find component (function/class, not host elements)
+          let current = fiber;
+          const components = [];
+          let depth = 0;
+          const maxDepth = 20; // Prevent infinite loops
+
+          while (current && depth < maxDepth) {
+            depth++;
+            const type = current.type;
+
+            if (type && typeof type === 'function') {
+              const name = type.displayName || type.name || 'Anonymous';
+              // Skip internal React components
+              if (!name.startsWith('_') && name !== 'Anonymous') {
+                const componentInfo = { name };
+
+                // Try to get source location from _source (dev mode only)
+                if (current._debugSource) {
+                  componentInfo.source = {
+                    fileName: current._debugSource.fileName,
+                    lineNumber: current._debugSource.lineNumber,
+                  };
+                }
+
+                // Get props (limited, avoid circular refs)
+                if (current.memoizedProps) {
+                  const props = {};
+                  const propKeys = Object.keys(current.memoizedProps).slice(0, 10);
+                  for (const key of propKeys) {
+                    const val = current.memoizedProps[key];
+                    if (val !== null && typeof val !== 'function' && typeof val !== 'object') {
+                      props[key] = val;
+                    } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+                      props[key] = '{...}';
+                    } else if (Array.isArray(val)) {
+                      props[key] = '[...]';
+                    } else if (typeof val === 'function') {
+                      props[key] = 'fn()';
+                    }
+                  }
+                  if (Object.keys(props).length > 0) {
+                    componentInfo.props = props;
+                  }
+                }
+
+                components.push(componentInfo);
+                if (components.length >= 3) break; // Get up to 3 parent components
+              }
+            }
+            current = current.return;
+          }
+
+          return components.length > 0 ? { components, framework: 'React' } : null;
+        }
+
+        // Detect Vue component info
+        function getVueInfo(element) {
+          const vueKey = Object.keys(element).find(key => key.startsWith('__vue'));
+          if (!vueKey) return null;
+
+          const vue = element[vueKey];
+          if (!vue) return null;
+
+          const name = vue.$options?.name || vue.$.type?.name || 'VueComponent';
+          return {
+            framework: 'Vue',
+            components: [{ name }]
+          };
+        }
+
+        // Get framework info
+        const reactInfo = getReactInfo(el);
+        const vueInfo = !reactInfo ? getVueInfo(el) : null;
+        const frameworkInfo = reactInfo || vueInfo || null;
+
         return {
           tagName: el.tagName.toLowerCase(),
           id: el.id || undefined,
@@ -371,6 +460,7 @@ ipcMain.handle('browser:inspect', async (_event, x: number, y: number) => {
             : [],
           selector: getFullSelector(el),
           text: el.textContent?.slice(0, 100) || '',
+          framework: frameworkInfo,
         };
       })()
     `);
@@ -649,6 +739,20 @@ app.whenReady().then(async () => {
     console.error('Failed to start MCP server:', err);
   }
 
+  // Start Bridge server for MCP server communication (port 9333)
+  // This allows the claude-lens MCP server to take screenshots via our BrowserView
+  try {
+    bridgeServer = new BridgeServer(9333);
+    bridgeServer.setHandler(createBridgeHandler(
+      () => browserView,
+      () => consoleBuffer
+    ));
+    await bridgeServer.start();
+    console.log('Bridge server started on port 9333');
+  } catch (err) {
+    console.error('Failed to start Bridge server:', err);
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -658,6 +762,7 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   stopMCPServer();
+  bridgeServer?.stop();
   if (process.platform !== 'darwin') {
     app.quit();
   }

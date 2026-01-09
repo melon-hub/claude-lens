@@ -9,6 +9,7 @@ import { Terminal } from 'xterm';
 import type { ElementInfo } from './types';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 import 'xterm/css/xterm.css';
 
 // Elements - Header
@@ -47,6 +48,11 @@ const stylesList = document.getElementById('stylesList') as HTMLDivElement;
 const positionData = document.getElementById('positionData') as HTMLDivElement;
 const innerText = document.getElementById('innerText') as HTMLSpanElement;
 
+// Elements - Component Info
+const componentInfo = document.getElementById('componentInfo') as HTMLDivElement;
+const frameworkBadge = document.getElementById('frameworkBadge') as HTMLSpanElement;
+const componentList = document.getElementById('componentList') as HTMLDivElement;
+
 // Elements - Chips and Prompt
 const elementChips = document.getElementById('elementChips') as HTMLDivElement;
 const promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
@@ -64,14 +70,18 @@ const terminal = new Terminal({
     cursor: '#cccccc',
     selectionBackground: '#264f78',
   },
-  fontFamily: "'SF Mono', Monaco, 'Courier New', monospace",
+  fontFamily: "'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, 'Consolas', 'Courier New', 'Segoe UI Symbol', 'Segoe UI Emoji', 'Noto Color Emoji', 'Apple Color Emoji', monospace",
   fontSize: 13,
   cursorBlink: true,
+  allowProposedApi: true,
 });
 
 const fitAddon = new FitAddon();
+const unicode11Addon = new Unicode11Addon();
 terminal.loadAddon(fitAddon);
 terminal.loadAddon(new WebLinksAddon());
+terminal.loadAddon(unicode11Addon);
+terminal.unicode.activeVersion = '11';
 
 // State
 let claudeRunning = false;
@@ -223,6 +233,56 @@ function updateContextPanel(element: ElementInfo) {
   if (element.classes.length > 0) tagDisplay += ` class="${element.classes.join(' ')}"`;
   tagDisplay += '>';
   elementTag.textContent = tagDisplay;
+
+  // COMPONENT section (React/Vue)
+  if (element.framework && element.framework.components.length > 0) {
+    componentInfo.classList.remove('hidden');
+
+    // Set framework badge
+    frameworkBadge.textContent = element.framework.framework;
+    frameworkBadge.className = `framework-badge ${element.framework.framework.toLowerCase()}`;
+
+    // Display component hierarchy
+    componentList.textContent = '';
+    for (const comp of element.framework.components) {
+      const row = document.createElement('div');
+      row.className = 'component-row';
+
+      // Component name (e.g., <UserProfile />)
+      const nameEl = document.createElement('div');
+      nameEl.className = 'component-name';
+      nameEl.textContent = `<${comp.name} />`;
+      row.appendChild(nameEl);
+
+      // Source file and line number
+      if (comp.source) {
+        const sourceEl = document.createElement('div');
+        sourceEl.className = 'component-source';
+        sourceEl.textContent = `${comp.source.fileName}:${comp.source.lineNumber}`;
+        row.appendChild(sourceEl);
+      }
+
+      // Props (limited display)
+      if (comp.props && Object.keys(comp.props).length > 0) {
+        const propsEl = document.createElement('div');
+        propsEl.className = 'component-props';
+        const propEntries = Object.entries(comp.props).slice(0, 3);
+        const propsText = propEntries.map(([k, v]) => {
+          const valueStr = typeof v === 'string' ? `"${v}"` : String(v);
+          return `<span class="prop-name">${k}</span>=<span class="prop-value">${valueStr}</span>`;
+        }).join(' ');
+        propsEl.innerHTML = propsText;
+        if (Object.keys(comp.props).length > 3) {
+          propsEl.innerHTML += ' ...';
+        }
+        row.appendChild(propsEl);
+      }
+
+      componentList.appendChild(row);
+    }
+  } else {
+    componentInfo.classList.add('hidden');
+  }
 
   // PATH section
   elementPath.textContent = element.selector;
@@ -381,6 +441,7 @@ function removeElement(selector: string) {
     // Reset context panel to empty state
     contextEmpty.classList.remove('hidden');
     elementInfo.classList.add('hidden');
+    componentInfo.classList.add('hidden');
     pathInfo.classList.add('hidden');
     attributesInfo.classList.add('hidden');
     stylesInfo.classList.add('hidden');
@@ -626,15 +687,45 @@ sendPromptBtn.addEventListener('click', async () => {
       ctx += `**Position:** ${Math.round(el.position.x)}, ${Math.round(el.position.y)}\n`;
       ctx += `**Size:** ${Math.round(el.position.width)}×${Math.round(el.position.height)}px\n`;
     }
+
+    // Add component info for Claude to know which file to edit
+    if (el.framework && el.framework.components.length > 0) {
+      ctx += `\n**Framework:** ${el.framework.framework}\n`;
+      ctx += `**Component Hierarchy:**\n`;
+      for (const comp of el.framework.components) {
+        ctx += `  - \`<${comp.name} />\``;
+        if (comp.source) {
+          ctx += ` → **${comp.source.fileName}:${comp.source.lineNumber}**`;
+        }
+        ctx += '\n';
+      }
+      // Emphasize the first component (most specific) for editing
+      const primary = el.framework.components[0];
+      if (primary?.source) {
+        ctx += `\n**Edit this file:** \`${primary.source.fileName}\` at line ${primary.source.lineNumber}\n`;
+      }
+    }
+
     return ctx;
   }).join('\n---\n\n');
 
-  // Build full context with page info (no console - use drawer for that)
+  // Build full context with page info and tool hints
   const pageContext = pageURL ? `**Page:** ${pageURL}\n\n` : '';
+
+  // Add tool hints so Claude knows to use our MCP tools
+  const toolHints = `---
+**Claude Lens Context**
+- For screenshots, use \`claude_lens/screenshot\` (NOT browser_snapshot/Playwright)
+- For element inspection, use \`claude_lens/inspect_element\`
+- For console logs, use \`claude_lens/get_console\`
+- If you need to edit files but don't know the source path, ASK the user where the project files are located.
+---
+
+`;
 
   // If no prompt, use a default instruction
   const finalPrompt = prompt || 'Here is the element I selected:';
-  const fullPrompt = `${finalPrompt}\n\n${pageContext}${elementContexts}`;
+  const fullPrompt = `${toolHints}${finalPrompt}\n\n${pageContext}${elementContexts}`;
   const result = await window.claudeLens.sendToClaude(fullPrompt, '');
 
   if (result.success) {
@@ -644,6 +735,7 @@ sendPromptBtn.addEventListener('click', async () => {
     updateElementChips();
     contextEmpty.classList.remove('hidden');
     elementInfo.classList.add('hidden');
+    componentInfo.classList.add('hidden');
     pathInfo.classList.add('hidden');
     attributesInfo.classList.add('hidden');
     stylesInfo.classList.add('hidden');

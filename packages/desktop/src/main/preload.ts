@@ -7,7 +7,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 // App version from package.json
-const APP_VERSION = '0.1.5';
+const APP_VERSION = '0.1.7';
 
 // Expose protected APIs to renderer
 contextBridge.exposeInMainWorld('claudeLens', {

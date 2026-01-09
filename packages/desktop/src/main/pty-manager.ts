@@ -58,7 +58,8 @@ export class PtyManager {
     }
 
     // Send the command to start claude
-    this.write(claudeCmd + '\n');
+    // Use 'exec' to replace shell with claude, so when claude exits, the PTY exits
+    this.write(`exec ${claudeCmd}\n`);
   }
 
   /**

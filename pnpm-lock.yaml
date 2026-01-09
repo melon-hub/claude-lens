@@ -57,6 +57,9 @@ importers:
       '@claude-lens/core':
         specifier: workspace:*
         version: link:../core
+      '@xterm/addon-unicode11':
+        specifier: ^0.9.0
+        version: 0.9.0
       node-pty:
         specifier: ^1.0.0
         version: 1.1.0
@@ -1528,6 +1531,10 @@ packages:
     engines: {node: '>=10.0.0'}
     requiresBuild: true
     dev: true
+
+  /@xterm/addon-unicode11@0.9.0:
+    resolution: {integrity: sha512-FxDnYcyuXhNl+XSqGZL/t0U9eiNb/q3EWT5rYkQT/zuig8Gz/VagnQANKHdDWFM2lTMk9ly0EFQxxxtZUoRetw==}
+    dev: false
 
   /abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}

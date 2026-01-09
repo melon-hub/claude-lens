@@ -35,24 +35,6 @@
         "title": "Claude Lens: Disconnect"
       }
     ],
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "claudeLens",
-          "title": "Claude Lens",
-          "icon": "$(browser)"
-        }
-      ]
-    },
-    "views": {
-      "claudeLens": [
-        {
-          "type": "webview",
-          "id": "claudeLens.browserView",
-          "name": "Browser"
-        }
-      ]
-    },
     "configuration": {
       "title": "Claude Lens",
       "properties": {

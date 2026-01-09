@@ -3,6 +3,17 @@
  * Matches the API exposed via preload script
  */
 
+export interface ComponentInfo {
+  name: string;
+  source?: { fileName: string; lineNumber: number };
+  props?: Record<string, unknown>;
+}
+
+export interface FrameworkInfo {
+  framework: 'React' | 'Vue';
+  components: ComponentInfo[];
+}
+
 export interface ElementInfo {
   tagName: string;
   id?: string;
@@ -12,6 +23,7 @@ export interface ElementInfo {
   attributes?: Record<string, string>;
   styles?: Record<string, string>;
   position?: { x: number; y: number; width: number; height: number };
+  framework?: FrameworkInfo;
 }
 
 export interface ClaudeLensAPI {

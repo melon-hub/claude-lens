@@ -287,39 +287,32 @@ async function handleClick(x: number, y: number): Promise<void> {
     // Store for MCP access
     lastInspectedElement = elementInfo;
 
-    // Show element info in webview
-    sendToWebview({
-      command: 'elementInfo',
-      element: elementInfo,
+    // Highlight the element
+    await cdpAdapter.highlight(elementInfo.selector, {
+      style: 'outline',
+      color: '#3b82f6',
+      duration: 5000,
     });
 
-    // Show confirmation dialog
-    const choice = await vscode.window.showInformationMessage(
-      `Send ${elementInfo.tagName}${elementInfo.id ? '#' + elementInfo.id : ''} to Claude?`,
-      'Send to Claude',
-      'Highlight',
-      'Cancel'
-    );
-
-    if (choice === 'Send to Claude') {
-      await sendElementToClaude(elementInfo);
-    } else if (choice === 'Highlight') {
-      await cdpAdapter.highlight(elementInfo.selector, {
-        style: 'outline',
-        color: '#3b82f6',
-        duration: 3000,
-      });
-    }
+    // Show prompt input in webview - let user type what they want
+    sendToWebview({
+      command: 'showPromptInput',
+      element: {
+        selector: elementInfo.selector,
+        tagName: elementInfo.tagName,
+        id: elementInfo.id,
+        classes: elementInfo.classes,
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     vscode.window.showErrorMessage(`Failed to inspect element: ${message}`);
   }
 }
 
-async function sendElementToClaude(element: ElementInfo): Promise<void> {
+async function sendElementToClaude(element: ElementInfo, userPrompt?: string): Promise<void> {
   // Format element info for Claude
-  const context = `
-## Inspected Element
+  const context = `## Inspected Element
 
 **Selector:** \`${element.selector}\`
 **Tag:** ${element.tagName}${element.id ? `#${element.id}` : ''}
@@ -341,9 +334,41 @@ async function sendElementToClaude(element: ElementInfo): Promise<void> {
 - width: ${element.boundingBox.width}, height: ${element.boundingBox.height}
 `;
 
-  // Copy to clipboard for now (MCP integration comes later)
-  await vscode.env.clipboard.writeText(context);
-  vscode.window.showInformationMessage('Element info copied to clipboard. Paste into Claude conversation.');
+  // Combine user prompt with element context
+  const fullPrompt = userPrompt
+    ? `${userPrompt}\n\n${context}`
+    : context;
+
+  // Write to context file for hook injection
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '/mnt/c/Users/Hoff';
+  const contextPath = vscode.Uri.file(`${homeDir}/.claude-lens-context.md`);
+  const timestamp = new Date().toISOString();
+  const fullContent = `<!-- Claude Lens Context - ${timestamp} -->\n${fullPrompt}`;
+  try {
+    await vscode.workspace.fs.writeFile(contextPath, Buffer.from(fullContent, 'utf8'));
+  } catch (err) {
+    console.error('Failed to write context file:', err);
+  }
+
+  if (!userPrompt) {
+    // No prompt yet - show in webview for user to type
+    sendToWebview({
+      command: 'showPromptInput',
+      element: element,
+    });
+  } else {
+    // Copy just the user's request to clipboard (context will be injected by hook)
+    await vscode.env.clipboard.writeText(userPrompt);
+
+    // Notify user
+    vscode.window.showInformationMessage(
+      'Ready! Go to Claude Code and paste (Ctrl+V) or type anything.',
+      'OK'
+    );
+
+    // Tell webview prompt was sent
+    sendToWebview({ command: 'promptSent' });
+  }
 }
 
 function openBrowserPanel(context: vscode.ExtensionContext) {
@@ -362,7 +387,8 @@ function openBrowserPanel(context: vscode.ExtensionContext) {
     }
   );
 
-  browserPanel.webview.html = getWebviewContent();
+  const nonce = getNonce();
+  browserPanel.webview.html = getWebviewContent(nonce);
 
   browserPanel.onDidDispose(() => {
     browserPanel = undefined;
@@ -391,6 +417,18 @@ function openBrowserPanel(context: vscode.ExtensionContext) {
             startScreenshotStreaming();
           }
           break;
+        case 'sendPrompt':
+          // User typed a prompt in the webview - send to Claude with element context
+          if (lastInspectedElement && message.prompt) {
+            await sendElementToClaude(lastInspectedElement, message.prompt);
+          }
+          break;
+        case 'cancelPrompt':
+          // User cancelled - clear highlight
+          if (cdpAdapter?.isConnected()) {
+            await cdpAdapter.clearHighlights();
+          }
+          break;
       }
     },
     undefined,
@@ -408,12 +446,22 @@ function sendToWebview(message: Record<string, unknown>): void {
   }
 }
 
-function getWebviewContent(): string {
+function getNonce(): string {
+  let text = '';
+  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < 32; i++) {
+    text += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return text;
+}
+
+function getWebviewContent(nonce: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:;">
   <title>Claude Lens</title>
   <style>
     * {
@@ -521,6 +569,64 @@ function getWebviewContent(): string {
     .hidden {
       display: none;
     }
+    .prompt-overlay {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--vscode-editor-background);
+      border-top: 2px solid var(--vscode-focusBorder);
+      padding: 12px;
+      z-index: 1000;
+      box-shadow: 0 -4px 12px rgba(0,0,0,0.3);
+    }
+    .prompt-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .prompt-element {
+      font-size: 12px;
+      color: var(--vscode-descriptionForeground);
+      font-family: var(--vscode-editor-font-family);
+    }
+    .prompt-input-row {
+      display: flex;
+      gap: 8px;
+    }
+    .prompt-input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid var(--vscode-input-border);
+      background: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .prompt-input:focus {
+      outline: 2px solid var(--vscode-focusBorder);
+    }
+    .btn-send {
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .btn-send:hover {
+      background: var(--vscode-button-hoverBackground);
+    }
+    .btn-cancel {
+      background: transparent;
+      color: var(--vscode-descriptionForeground);
+      padding: 8px 12px;
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 4px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -545,12 +651,24 @@ function getWebviewContent(): string {
 
   <div class="console-panel hidden" id="consolePanel"></div>
 
+  <!-- Prompt input overlay - appears when element is selected -->
+  <div class="prompt-overlay hidden" id="promptOverlay">
+    <div class="prompt-header">
+      <span class="prompt-element" id="promptElement">Selected: element</span>
+      <button class="btn-cancel" id="cancelPromptBtn">Cancel</button>
+    </div>
+    <div class="prompt-input-row">
+      <input type="text" class="prompt-input" id="promptInput" placeholder="What should Claude do with this element? (e.g., 'change color to blue', 'fix alignment')">
+      <button class="btn-send" id="sendPromptBtn">Send to Claude</button>
+    </div>
+  </div>
+
   <div class="status-bar">
     <span id="status">Disconnected</span>
     <span id="info">Ctrl+Click to inspect elements</span>
   </div>
 
-  <script>
+  <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const urlInput = document.getElementById('urlInput');
     const goBtn = document.getElementById('goBtn');
@@ -559,10 +677,16 @@ function getWebviewContent(): string {
     const placeholder = document.getElementById('placeholder');
     const status = document.getElementById('status');
     const consolePanel = document.getElementById('consolePanel');
+    const promptOverlay = document.getElementById('promptOverlay');
+    const promptElement = document.getElementById('promptElement');
+    const promptInput = document.getElementById('promptInput');
+    const sendPromptBtn = document.getElementById('sendPromptBtn');
+    const cancelPromptBtn = document.getElementById('cancelPromptBtn');
     const ctx = canvas.getContext('2d');
 
     let scaleX = 1;
     let scaleY = 1;
+    let selectedElement = null;
 
     goBtn.addEventListener('click', () => {
       const url = urlInput.value.trim();
@@ -581,6 +705,41 @@ function getWebviewContent(): string {
     refreshBtn.addEventListener('click', () => {
       vscode.postMessage({ command: 'refresh' });
     });
+
+    // Prompt overlay handlers
+    sendPromptBtn.addEventListener('click', () => {
+      const prompt = promptInput.value.trim();
+      if (prompt) {
+        vscode.postMessage({ command: 'sendPrompt', prompt });
+        hidePromptOverlay();
+      }
+    });
+
+    promptInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        sendPromptBtn.click();
+      }
+    });
+
+    cancelPromptBtn.addEventListener('click', () => {
+      vscode.postMessage({ command: 'cancelPrompt' });
+      hidePromptOverlay();
+    });
+
+    function showPromptOverlay(element) {
+      selectedElement = element;
+      const name = element.tagName + (element.id ? '#' + element.id : '') + (element.classes?.length ? '.' + element.classes.join('.') : '');
+      promptElement.textContent = 'Selected: ' + name;
+      promptInput.value = '';
+      promptOverlay.classList.remove('hidden');
+      promptInput.focus();
+    }
+
+    function hidePromptOverlay() {
+      promptOverlay.classList.add('hidden');
+      promptInput.value = '';
+      selectedElement = null;
+    }
 
     canvas.addEventListener('click', (e) => {
       if (e.ctrlKey || e.metaKey) {
@@ -622,6 +781,16 @@ function getWebviewContent(): string {
 
         case 'elementInfo':
           // Could show a tooltip with element info
+          break;
+
+        case 'showPromptInput':
+          // Show the prompt overlay for user to type their request
+          showPromptOverlay(message.element);
+          break;
+
+        case 'promptSent':
+          // Confirmation that prompt was sent to Claude
+          hidePromptOverlay();
           break;
       }
     });

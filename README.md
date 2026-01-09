@@ -2,7 +2,7 @@
 
 > **Point at what's broken. Talk to Claude about it. Keep the conversation going.**
 
-Visual web development companion for Claude Code that bridges what you *see* with what Claude *knows*.
+Visual web development companion for Claude Code that bridges what you *see* with what Claude *knows* - this app will allow you to interact directly with any of your front end applications with two way communication between the app and claude code for seamless and more efficient development
 
 **Status:** Working Prototype | VS Code Extension (v0.1.0) | Desktop App (v0.2.1)
 

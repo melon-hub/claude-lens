@@ -65,6 +65,70 @@ const WaitForSchema = z.object({
   visible: z.boolean().optional().default(true),
 });
 
+// Playwright-powered tool schemas
+const FillSchema = z.object({
+  selector: z.string().describe('CSS selector of input element'),
+  value: z.string().describe('Value to fill (clears existing value first)'),
+});
+
+const SelectOptionSchema = z.object({
+  selector: z.string().describe('CSS selector of select element'),
+  values: z.union([z.string(), z.array(z.string())]).describe('Option value(s) to select'),
+});
+
+const HoverSchema = z.object({
+  selector: z.string().describe('CSS selector of element to hover'),
+});
+
+const PressKeySchema = z.object({
+  key: z.string().describe('Key to press (e.g., "Enter", "Tab", "Escape", "ArrowDown")'),
+});
+
+const DragAndDropSchema = z.object({
+  source: z.string().describe('CSS selector of element to drag'),
+  target: z.string().describe('CSS selector of drop target'),
+});
+
+const ScrollSchema = z.object({
+  selector: z.string().optional().describe('CSS selector to scroll into view'),
+  direction: z.enum(['up', 'down', 'left', 'right']).optional(),
+  distance: z.number().optional().default(100).describe('Scroll distance in pixels'),
+});
+
+const WaitForResponseSchema = z.object({
+  urlPattern: z.string().describe('URL pattern to wait for (string or regex pattern)'),
+  timeout: z.number().optional().default(10000),
+});
+
+const GetTextSchema = z.object({
+  selector: z.string().describe('CSS selector of element'),
+});
+
+const GetAttributeSchema = z.object({
+  selector: z.string().describe('CSS selector of element'),
+  name: z.string().describe('Attribute name to get'),
+});
+
+const IsVisibleSchema = z.object({
+  selector: z.string().describe('CSS selector to check'),
+});
+
+const IsEnabledSchema = z.object({
+  selector: z.string().describe('CSS selector to check'),
+});
+
+const IsCheckedSchema = z.object({
+  selector: z.string().describe('CSS selector of checkbox/radio'),
+});
+
+const EvaluateSchema = z.object({
+  script: z.string().describe('JavaScript code to execute in browser context'),
+});
+
+const DialogHandlerSchema = z.object({
+  action: z.enum(['accept', 'dismiss']).describe('How to handle dialogs (alerts, confirms, prompts)'),
+});
+
 // Create server
 const server = new Server(
   {
@@ -251,6 +315,208 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['selector'],
+        },
+      },
+      // Playwright-powered tools
+      {
+        name: 'claude_lens/browser_snapshot',
+        description:
+          'Get an accessibility tree snapshot of the page. This is much faster than screenshots for understanding page structure and finding elements.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'claude_lens/fill',
+        description:
+          'Fill an input field, clearing any existing value first. Better than type() for form inputs.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS selector of input element' },
+            value: { type: 'string', description: 'Value to fill' },
+          },
+          required: ['selector', 'value'],
+        },
+      },
+      {
+        name: 'claude_lens/select_option',
+        description: 'Select an option from a dropdown/select element.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS selector of select element' },
+            values: {
+              oneOf: [
+                { type: 'string', description: 'Single option value' },
+                { type: 'array', items: { type: 'string' }, description: 'Multiple option values' },
+              ],
+            },
+          },
+          required: ['selector', 'values'],
+        },
+      },
+      {
+        name: 'claude_lens/hover',
+        description: 'Hover over an element to trigger hover states or tooltips.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS selector of element to hover' },
+          },
+          required: ['selector'],
+        },
+      },
+      {
+        name: 'claude_lens/press_key',
+        description:
+          'Press a keyboard key. Use for Enter, Tab, Escape, arrow keys, etc.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            key: {
+              type: 'string',
+              description: 'Key to press (e.g., "Enter", "Tab", "Escape", "ArrowDown", "Control+a")',
+            },
+          },
+          required: ['key'],
+        },
+      },
+      {
+        name: 'claude_lens/drag_and_drop',
+        description: 'Drag an element and drop it on another element.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            source: { type: 'string', description: 'CSS selector of element to drag' },
+            target: { type: 'string', description: 'CSS selector of drop target' },
+          },
+          required: ['source', 'target'],
+        },
+      },
+      {
+        name: 'claude_lens/scroll',
+        description: 'Scroll the page or scroll an element into view.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS selector to scroll into view (optional)' },
+            direction: { type: 'string', enum: ['up', 'down', 'left', 'right'], description: 'Scroll direction' },
+            distance: { type: 'number', description: 'Scroll distance in pixels (default: 100)' },
+          },
+        },
+      },
+      {
+        name: 'claude_lens/wait_for_response',
+        description: 'Wait for a specific network response. Use after actions that trigger API calls.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            urlPattern: { type: 'string', description: 'URL pattern to match (e.g., "/api/users")' },
+            timeout: { type: 'number', description: 'Maximum wait time in ms (default: 10000)' },
+          },
+          required: ['urlPattern'],
+        },
+      },
+      {
+        name: 'claude_lens/get_text',
+        description: 'Get the text content of an element.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS selector of element' },
+          },
+          required: ['selector'],
+        },
+      },
+      {
+        name: 'claude_lens/get_attribute',
+        description: 'Get an attribute value from an element.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS selector of element' },
+            name: { type: 'string', description: 'Attribute name (e.g., "href", "src", "data-id")' },
+          },
+          required: ['selector', 'name'],
+        },
+      },
+      {
+        name: 'claude_lens/is_visible',
+        description: 'Check if an element is visible on the page.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS selector to check' },
+          },
+          required: ['selector'],
+        },
+      },
+      {
+        name: 'claude_lens/is_enabled',
+        description: 'Check if a form element is enabled (not disabled).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS selector to check' },
+          },
+          required: ['selector'],
+        },
+      },
+      {
+        name: 'claude_lens/is_checked',
+        description: 'Check if a checkbox or radio button is checked.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS selector of checkbox/radio' },
+          },
+          required: ['selector'],
+        },
+      },
+      {
+        name: 'claude_lens/evaluate',
+        description:
+          'Execute JavaScript in the browser and return the result. Use for complex queries or custom logic.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            script: { type: 'string', description: 'JavaScript code to execute' },
+          },
+          required: ['script'],
+        },
+      },
+      {
+        name: 'claude_lens/go_back',
+        description: 'Navigate back in browser history.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'claude_lens/go_forward',
+        description: 'Navigate forward in browser history.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'claude_lens/handle_dialog',
+        description:
+          'Set how to handle browser dialogs (alert, confirm, prompt). Call before triggering the dialog.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['accept', 'dismiss'],
+              description: 'accept = click OK, dismiss = click Cancel',
+            },
+          },
+          required: ['action'],
         },
       },
     ],
@@ -463,6 +729,175 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
             {
               type: 'text',
               text: `Element found: <${element.tagName}> matching ${selector}`,
+            },
+          ],
+        };
+      }
+
+      // Playwright-powered tool handlers
+      case 'claude_lens/browser_snapshot': {
+        const snapshot = await bridge.getAccessibilitySnapshot();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `## Accessibility Tree\n\n\`\`\`json\n${snapshot}\n\`\`\``,
+            },
+          ],
+        };
+      }
+
+      case 'claude_lens/fill': {
+        const { selector, value } = FillSchema.parse(args);
+        await bridge.fill(selector, value);
+        const preview = value.length > 50 ? value.substring(0, 50) + '...' : value;
+        return {
+          content: [{ type: 'text', text: `Filled "${preview}" into ${selector}` }],
+        };
+      }
+
+      case 'claude_lens/select_option': {
+        const { selector, values } = SelectOptionSchema.parse(args);
+        const selected = await bridge.selectOption(selector, values);
+        return {
+          content: [
+            { type: 'text', text: `Selected option(s): ${selected.join(', ')} in ${selector}` },
+          ],
+        };
+      }
+
+      case 'claude_lens/hover': {
+        const { selector } = HoverSchema.parse(args);
+        await bridge.hover(selector);
+        return {
+          content: [{ type: 'text', text: `Hovered over ${selector}` }],
+        };
+      }
+
+      case 'claude_lens/press_key': {
+        const { key } = PressKeySchema.parse(args);
+        await bridge.pressKey(key);
+        return {
+          content: [{ type: 'text', text: `Pressed key: ${key}` }],
+        };
+      }
+
+      case 'claude_lens/drag_and_drop': {
+        const { source, target } = DragAndDropSchema.parse(args);
+        await bridge.dragAndDrop(source, target);
+        return {
+          content: [{ type: 'text', text: `Dragged ${source} to ${target}` }],
+        };
+      }
+
+      case 'claude_lens/scroll': {
+        const { selector, direction, distance } = ScrollSchema.parse(args);
+        await bridge.scroll({ selector, direction, distance });
+        const desc = selector
+          ? `Scrolled ${selector} into view`
+          : direction
+            ? `Scrolled ${direction} ${distance}px`
+            : 'Scrolled page';
+        return {
+          content: [{ type: 'text', text: desc }],
+        };
+      }
+
+      case 'claude_lens/wait_for_response': {
+        const { urlPattern } = WaitForResponseSchema.parse(args);
+        const response = await bridge.waitForResponse(urlPattern);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Response received:\n- URL: ${response.url}\n- Status: ${response.status}`,
+            },
+          ],
+        };
+      }
+
+      case 'claude_lens/get_text': {
+        const { selector } = GetTextSchema.parse(args);
+        const text = await bridge.getText(selector);
+        return {
+          content: [{ type: 'text', text: `Text content of ${selector}:\n"${text}"` }],
+        };
+      }
+
+      case 'claude_lens/get_attribute': {
+        const { selector, name: attrName } = GetAttributeSchema.parse(args);
+        const value = await bridge.getAttribute(selector, attrName);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: value !== null
+                ? `${selector}[${attrName}] = "${value}"`
+                : `${selector} has no ${attrName} attribute`,
+            },
+          ],
+        };
+      }
+
+      case 'claude_lens/is_visible': {
+        const { selector } = IsVisibleSchema.parse(args);
+        const visible = await bridge.isVisible(selector);
+        return {
+          content: [{ type: 'text', text: `${selector} is ${visible ? 'visible' : 'not visible'}` }],
+        };
+      }
+
+      case 'claude_lens/is_enabled': {
+        const { selector } = IsEnabledSchema.parse(args);
+        const enabled = await bridge.isEnabled(selector);
+        return {
+          content: [{ type: 'text', text: `${selector} is ${enabled ? 'enabled' : 'disabled'}` }],
+        };
+      }
+
+      case 'claude_lens/is_checked': {
+        const { selector } = IsCheckedSchema.parse(args);
+        const checked = await bridge.isChecked(selector);
+        return {
+          content: [{ type: 'text', text: `${selector} is ${checked ? 'checked' : 'not checked'}` }],
+        };
+      }
+
+      case 'claude_lens/evaluate': {
+        const { script } = EvaluateSchema.parse(args);
+        const result = await bridge.evaluate(script);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `JavaScript result:\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``,
+            },
+          ],
+        };
+      }
+
+      case 'claude_lens/go_back': {
+        await bridge.goBack();
+        return {
+          content: [{ type: 'text', text: 'Navigated back in history' }],
+        };
+      }
+
+      case 'claude_lens/go_forward': {
+        await bridge.goForward();
+        return {
+          content: [{ type: 'text', text: 'Navigated forward in history' }],
+        };
+      }
+
+      case 'claude_lens/handle_dialog': {
+        const { action } = DialogHandlerSchema.parse(args);
+        await bridge.setDialogHandler(action);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Dialog handler set to ${action}. Next dialog will be ${action === 'accept' ? 'accepted' : 'dismissed'}.`,
             },
           ],
         };

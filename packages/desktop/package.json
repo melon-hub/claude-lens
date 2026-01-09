@@ -17,6 +17,7 @@
     "@claude-lens/core": "workspace:*",
     "@xterm/addon-unicode11": "^0.9.0",
     "node-pty": "^1.0.0",
+    "playwright-core": "^1.40.0",
     "xterm": "^5.3.0",
     "xterm-addon-fit": "^0.8.0",
     "xterm-addon-web-links": "^0.9.0",

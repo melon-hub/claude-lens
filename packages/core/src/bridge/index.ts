@@ -33,10 +33,28 @@ export interface BridgeHandler {
   screenshot(selector?: string): Promise<string>; // base64
   getConsoleLogs(level?: string, limit?: number): Promise<ConsoleMessage[]>;
   reload(): Promise<void>;
-  // Automation
+  // Automation (basic)
   click(selector: string, options?: ClickOptions): Promise<void>;
   type(selector: string, text: string, options?: TypeOptions): Promise<void>;
   waitFor(selector: string, options?: WaitForOptions): Promise<ElementInfo>;
+  // Playwright-powered automation (extended)
+  fill?(selector: string, value: string): Promise<void>;
+  selectOption?(selector: string, values: string | string[]): Promise<string[]>;
+  hover?(selector: string): Promise<void>;
+  pressKey?(key: string): Promise<void>;
+  dragAndDrop?(source: string, target: string): Promise<void>;
+  scroll?(options: { selector?: string; direction?: string; distance?: number }): Promise<void>;
+  waitForResponse?(urlPattern: string): Promise<{ url: string; status: number }>;
+  getText?(selector: string): Promise<string>;
+  getAttribute?(selector: string, name: string): Promise<string | null>;
+  isVisible?(selector: string): Promise<boolean>;
+  isEnabled?(selector: string): Promise<boolean>;
+  isChecked?(selector: string): Promise<boolean>;
+  evaluate?(script: string): Promise<unknown>;
+  getAccessibilitySnapshot?(): Promise<string>;
+  goBack?(): Promise<void>;
+  goForward?(): Promise<void>;
+  setDialogHandler?(action: 'accept' | 'dismiss'): void;
 }
 
 const DEFAULT_PORT = 9333;
@@ -162,6 +180,157 @@ export class BridgeServer {
                 body['selector'] as string,
                 body['options'] as WaitForOptions | undefined
               );
+              break;
+
+            // Playwright-powered routes
+            case '/fill':
+              if (this.handler.fill) {
+                await this.handler.fill(body['selector'] as string, body['value'] as string);
+                result = { success: true };
+              } else {
+                throw new Error('fill not supported');
+              }
+              break;
+
+            case '/select-option':
+              if (this.handler.selectOption) {
+                result = await this.handler.selectOption(
+                  body['selector'] as string,
+                  body['values'] as string | string[]
+                );
+              } else {
+                throw new Error('selectOption not supported');
+              }
+              break;
+
+            case '/hover':
+              if (this.handler.hover) {
+                await this.handler.hover(body['selector'] as string);
+                result = { success: true };
+              } else {
+                throw new Error('hover not supported');
+              }
+              break;
+
+            case '/press-key':
+              if (this.handler.pressKey) {
+                await this.handler.pressKey(body['key'] as string);
+                result = { success: true };
+              } else {
+                throw new Error('pressKey not supported');
+              }
+              break;
+
+            case '/drag-and-drop':
+              if (this.handler.dragAndDrop) {
+                await this.handler.dragAndDrop(
+                  body['source'] as string,
+                  body['target'] as string
+                );
+                result = { success: true };
+              } else {
+                throw new Error('dragAndDrop not supported');
+              }
+              break;
+
+            case '/scroll':
+              if (this.handler.scroll) {
+                await this.handler.scroll(body['options'] as { selector?: string; direction?: string; distance?: number });
+                result = { success: true };
+              } else {
+                throw new Error('scroll not supported');
+              }
+              break;
+
+            case '/wait-for-response':
+              if (this.handler.waitForResponse) {
+                result = await this.handler.waitForResponse(body['urlPattern'] as string);
+              } else {
+                throw new Error('waitForResponse not supported');
+              }
+              break;
+
+            case '/get-text':
+              if (this.handler.getText) {
+                result = { text: await this.handler.getText(body['selector'] as string) };
+              } else {
+                throw new Error('getText not supported');
+              }
+              break;
+
+            case '/get-attribute':
+              if (this.handler.getAttribute) {
+                result = { value: await this.handler.getAttribute(body['selector'] as string, body['name'] as string) };
+              } else {
+                throw new Error('getAttribute not supported');
+              }
+              break;
+
+            case '/is-visible':
+              if (this.handler.isVisible) {
+                result = { visible: await this.handler.isVisible(body['selector'] as string) };
+              } else {
+                throw new Error('isVisible not supported');
+              }
+              break;
+
+            case '/is-enabled':
+              if (this.handler.isEnabled) {
+                result = { enabled: await this.handler.isEnabled(body['selector'] as string) };
+              } else {
+                throw new Error('isEnabled not supported');
+              }
+              break;
+
+            case '/is-checked':
+              if (this.handler.isChecked) {
+                result = { checked: await this.handler.isChecked(body['selector'] as string) };
+              } else {
+                throw new Error('isChecked not supported');
+              }
+              break;
+
+            case '/evaluate':
+              if (this.handler.evaluate) {
+                result = { result: await this.handler.evaluate(body['script'] as string) };
+              } else {
+                throw new Error('evaluate not supported');
+              }
+              break;
+
+            case '/accessibility-snapshot':
+              if (this.handler.getAccessibilitySnapshot) {
+                result = { snapshot: await this.handler.getAccessibilitySnapshot() };
+              } else {
+                throw new Error('getAccessibilitySnapshot not supported');
+              }
+              break;
+
+            case '/go-back':
+              if (this.handler.goBack) {
+                await this.handler.goBack();
+                result = { success: true };
+              } else {
+                throw new Error('goBack not supported');
+              }
+              break;
+
+            case '/go-forward':
+              if (this.handler.goForward) {
+                await this.handler.goForward();
+                result = { success: true };
+              } else {
+                throw new Error('goForward not supported');
+              }
+              break;
+
+            case '/set-dialog-handler':
+              if (this.handler.setDialogHandler) {
+                this.handler.setDialogHandler(body['action'] as 'accept' | 'dismiss');
+                result = { success: true };
+              } else {
+                throw new Error('setDialogHandler not supported');
+              }
               break;
 
             default:
@@ -298,5 +467,82 @@ export class BridgeClient {
     } catch {
       return false;
     }
+  }
+
+  // Playwright-powered methods
+
+  async fill(selector: string, value: string): Promise<void> {
+    await this.request('/fill', { selector, value });
+  }
+
+  async selectOption(selector: string, values: string | string[]): Promise<string[]> {
+    return this.request('/select-option', { selector, values });
+  }
+
+  async hover(selector: string): Promise<void> {
+    await this.request('/hover', { selector });
+  }
+
+  async pressKey(key: string): Promise<void> {
+    await this.request('/press-key', { key });
+  }
+
+  async dragAndDrop(source: string, target: string): Promise<void> {
+    await this.request('/drag-and-drop', { source, target });
+  }
+
+  async scroll(options: { selector?: string; direction?: string; distance?: number }): Promise<void> {
+    await this.request('/scroll', { options });
+  }
+
+  async waitForResponse(urlPattern: string): Promise<{ url: string; status: number }> {
+    return this.request('/wait-for-response', { urlPattern });
+  }
+
+  async getText(selector: string): Promise<string> {
+    const result = await this.request<{ text: string }>('/get-text', { selector });
+    return result.text;
+  }
+
+  async getAttribute(selector: string, name: string): Promise<string | null> {
+    const result = await this.request<{ value: string | null }>('/get-attribute', { selector, name });
+    return result.value;
+  }
+
+  async isVisible(selector: string): Promise<boolean> {
+    const result = await this.request<{ visible: boolean }>('/is-visible', { selector });
+    return result.visible;
+  }
+
+  async isEnabled(selector: string): Promise<boolean> {
+    const result = await this.request<{ enabled: boolean }>('/is-enabled', { selector });
+    return result.enabled;
+  }
+
+  async isChecked(selector: string): Promise<boolean> {
+    const result = await this.request<{ checked: boolean }>('/is-checked', { selector });
+    return result.checked;
+  }
+
+  async evaluate(script: string): Promise<unknown> {
+    const result = await this.request<{ result: unknown }>('/evaluate', { script });
+    return result.result;
+  }
+
+  async getAccessibilitySnapshot(): Promise<string> {
+    const result = await this.request<{ snapshot: string }>('/accessibility-snapshot');
+    return result.snapshot;
+  }
+
+  async goBack(): Promise<void> {
+    await this.request('/go-back');
+  }
+
+  async goForward(): Promise<void> {
+    await this.request('/go-forward');
+  }
+
+  async setDialogHandler(action: 'accept' | 'dismiss'): Promise<void> {
+    await this.request('/set-dialog-handler', { action });
   }
 }

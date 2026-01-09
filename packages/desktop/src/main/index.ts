@@ -13,10 +13,17 @@ import * as fs from 'fs';
 import { PtyManager } from './pty-manager';
 import { startMCPServer, stopMCPServer, setBrowserView, setConsoleBuffer } from './mcp-server';
 import { BridgeServer } from '@claude-lens/core';
-import { createBridgeHandler } from './bridge-handler';
+import { createPlaywrightBridgeHandler } from './playwright-handler.js';
+import { PlaywrightAdapter, getCDPPort } from './playwright-adapter.js';
 import { analyzeProject, ProjectInfo, detectPackageManager, checkDependencyHealth, DependencyHealth } from './project-manager';
 import { DevServerManager } from './dev-server';
 import { StaticServer } from './static-server';
+
+// Enable remote debugging for Playwright integration
+// Must be set before app is ready
+const CDP_PORT = getCDPPort();
+app.commandLine.appendSwitch('remote-debugging-port', String(CDP_PORT));
+console.log(`[PlaywrightAdapter] Remote debugging enabled on port ${CDP_PORT}`);
 
 // Enable hot reload in development
 if (process.env.NODE_ENV === 'development') {
@@ -55,6 +62,7 @@ let mainWindow: BrowserWindow | null = null;
 let browserView: BrowserView | null = null;
 let ptyManager: PtyManager | null = null;
 let bridgeServer: BridgeServer | null = null;
+let playwrightAdapter: PlaywrightAdapter | null = null;
 
 // Project management state
 let currentProject: ProjectInfo | null = null;
@@ -489,6 +497,17 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
 
     if (browserView) {
       await browserView.webContents.loadURL(url);
+
+      // Connect Playwright to the BrowserView for automation
+      if (playwrightAdapter) {
+        try {
+          await playwrightAdapter.connect(browserView);
+          console.log('[PlaywrightAdapter] Connected to BrowserView');
+        } catch (err) {
+          console.error('[PlaywrightAdapter] Failed to connect:', err);
+          // Don't fail the whole operation - basic functionality still works
+        }
+      }
     }
 
     // Inject Claude Lens context into project before starting Claude
@@ -1283,16 +1302,22 @@ app.whenReady().then(async () => {
     );
   }
 
+  // Initialize Playwright adapter
+  playwrightAdapter = new PlaywrightAdapter(CDP_PORT);
+  console.log('[PlaywrightAdapter] Adapter initialized');
+
   // Start Bridge server for MCP server communication (port 9333)
-  // This allows the claude-lens MCP server to take screenshots via our BrowserView
+  // This allows the claude-lens MCP server to control the browser via Playwright
   try {
     bridgeServer = new BridgeServer(9333);
-    bridgeServer.setHandler(createBridgeHandler(
+    // Use Playwright-powered handler for full automation capabilities
+    bridgeServer.setHandler(createPlaywrightBridgeHandler(
       () => browserView,
-      () => consoleBuffer
+      () => consoleBuffer,
+      () => playwrightAdapter
     ));
     await bridgeServer.start();
-    console.log('Bridge server started on port 9333');
+    console.log('Bridge server started on port 9333 (Playwright-powered)');
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     console.error('Failed to start Bridge server:', errorMsg);
@@ -1312,6 +1337,12 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', async () => {
   stopMCPServer();
   bridgeServer?.stop();
+
+  // Clean up Playwright adapter
+  if (playwrightAdapter) {
+    await playwrightAdapter.disconnect();
+    playwrightAdapter = null;
+  }
 
   // Clean up project servers
   if (devServerManager) {

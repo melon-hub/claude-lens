@@ -48,10 +48,21 @@ export class PlaywrightAdapter {
       });
 
       // Find the page that matches our BrowserView's URL
-      await this.findMatchingPage(browserView);
+      // Retry a few times since the page might not be immediately available
+      let retries = 3;
+      while (retries > 0) {
+        await this.findMatchingPage(browserView);
+        if (this.page) break;
+
+        retries--;
+        if (retries > 0) {
+          console.log(`[PlaywrightAdapter] Page not found, retrying... (${retries} attempts left)`);
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
 
       if (!this.page) {
-        throw new Error('Could not find matching page for BrowserView');
+        throw new Error('Could not find matching page for BrowserView. The browser may not have loaded yet.');
       }
 
       console.log('[PlaywrightAdapter] Connected successfully to page:', this.page.url());
@@ -103,10 +114,15 @@ export class PlaywrightAdapter {
       }
     }
 
-    // Last resort: create a new context and page
-    console.log('[PlaywrightAdapter] No matching page found, creating new one');
-    this.context = await this.browser.newContext();
-    this.page = await this.context.newPage();
+    // Log available pages for debugging
+    console.log('[PlaywrightAdapter] No matching page found. Available pages:');
+    for (const ctx of contexts) {
+      for (const page of ctx.pages()) {
+        console.log('  -', page.url());
+      }
+    }
+    // Don't create a new page - that would be separate from the BrowserView
+    // The caller will check if this.page is null
   }
 
   /**

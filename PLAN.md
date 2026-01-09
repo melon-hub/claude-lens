@@ -56,7 +56,9 @@ This plan implements 13 frontend scenarios for element inspection, making Claude
 
 ---
 
-## Phase 2: Inspect Mode Enhancement (Dropdown Scenario)
+## Phase 2: Inspect Mode Enhancement (Dropdown Scenario) ✅ COMPLETE
+
+**Commit:** `49090e9` - "feat(desktop): Phase 2 UX - inspect sequence capture for dropdowns"
 
 **Goal:** Capture multi-step interactions like clicking a dropdown trigger then selecting an item inside.
 
@@ -469,12 +471,12 @@ git status
 - [ ] Change viewport preset, verify browser resizes
 - [ ] Ctrl+Click element, verify green highlight and capture
 
-### Phase 2
-- [ ] Enable Inspect Mode, click multiple elements
-- [ ] Verify sequence shows in panel
-- [ ] Click dropdown trigger, verify it stays open
-- [ ] Click item inside, verify action is blocked
-- [ ] Send sequence to Claude, verify format
+### Phase 2 ✅
+- [x] Enable Inspect Mode, click multiple elements
+- [x] Verify sequence shows in panel
+- [x] Click dropdown trigger, verify it stays open
+- [x] Click item inside, verify action is blocked
+- [x] Send sequence to Claude, verify format
 
 ### Phase 3
 - [ ] Select invalid form field, verify validation state shows

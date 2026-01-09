@@ -224,7 +224,7 @@ async function handleGetPageDom(maxDepth = 3): Promise<unknown> {
   }
 }
 
-async function handleGetScreenshot(fullPage = false): Promise<{ image: string; width: number; height: number } | { error: string }> {
+async function handleGetScreenshot(_fullPage = false): Promise<{ image: string; width: number; height: number } | { error: string }> {
   if (!browserViewRef) return { error: 'No browser view available' };
 
   try {
@@ -401,18 +401,24 @@ export function startMCPServer(): Promise<number> {
 
     server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
-        console.log(`MCP port ${MCP_PORT} in use, trying next...`);
-        server?.listen(MCP_PORT + 1);
+        // Fail hard instead of silently using a different port
+        // This prevents silent failures where Claude Code config points to 3333
+        // but the server is actually on a different port
+        const error = new Error(
+          `MCP server port ${MCP_PORT} is already in use. ` +
+          `Another instance of Claude Lens may be running. ` +
+          `Please close it and try again.`
+        );
+        console.error(error.message);
+        reject(error);
       } else {
         reject(err);
       }
     });
 
-    server.listen(MCP_PORT, () => {
-      const addr = server?.address();
-      const port = typeof addr === 'object' ? addr?.port : MCP_PORT;
-      console.log(`MCP server listening on port ${port}`);
-      resolve(port || MCP_PORT);
+    server.listen(MCP_PORT, '127.0.0.1', () => {
+      console.log(`MCP server listening on port ${MCP_PORT}`);
+      resolve(MCP_PORT);
     });
   });
 }

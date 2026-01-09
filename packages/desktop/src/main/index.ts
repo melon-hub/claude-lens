@@ -21,7 +21,7 @@ import { StaticServer } from './static-server';
 // Enable hot reload in development
 if (process.env.NODE_ENV === 'development') {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('electron-reload')(__dirname, {
       electron: path.join(__dirname, '../../node_modules/.bin/electron'),
       forceHardReset: true,
@@ -655,8 +655,15 @@ ipcMain.handle('browser:screenshot', async () => {
 ipcMain.handle('browser:inspect', async (_event, x: number, y: number) => {
   if (!browserView) return null;
 
+  // Validate coordinates are finite numbers to prevent XSS injection
+  if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
+    console.error('Invalid coordinates for inspect:', { x, y });
+    return null;
+  }
+
   try {
     // Execute JS in the browser to find element at coordinates
+    // x and y are validated as finite numbers above, safe to interpolate
     const result = await browserView.webContents.executeJavaScript(`
       (function() {
         const el = document.elementFromPoint(${x}, ${y});

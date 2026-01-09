@@ -10,7 +10,16 @@ import type { ElementInfo, ProjectInfo } from './types';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
+// @ts-expect-error - xterm-webfont has no type definitions
+import * as XtermWebfont from 'xterm-webfont';
 import 'xterm/css/xterm.css';
+
+// Extend Terminal type to include loadWebfontAndOpen from xterm-webfont addon
+declare module 'xterm' {
+  interface Terminal {
+    loadWebfontAndOpen(element: HTMLElement): Promise<Terminal>;
+  }
+}
 
 // Elements - Header
 const urlInput = document.getElementById('urlInput') as HTMLInputElement;
@@ -78,9 +87,11 @@ const terminal = new Terminal({
 
 const fitAddon = new FitAddon();
 const unicode11Addon = new Unicode11Addon();
+const webfontAddon = new XtermWebfont();
 terminal.loadAddon(fitAddon);
 terminal.loadAddon(new WebLinksAddon());
 terminal.loadAddon(unicode11Addon);
+terminal.loadAddon(webfontAddon);
 terminal.unicode.activeVersion = '11';
 
 // State
@@ -221,7 +232,15 @@ async function init() {
     versionEl.textContent = `v${window.claudeLens.version}`;
   }
 
-  terminal.open(terminalEl);
+  // Use webfont addon to ensure fonts are loaded before opening terminal
+  // This prevents rendering issues with custom fonts in canvas-based xterm
+  try {
+    await terminal.loadWebfontAndOpen(terminalEl);
+    console.log('Terminal opened with webfont:', terminal.options.fontFamily);
+  } catch (err) {
+    console.warn('Webfont loading failed, opening terminal with fallback:', err);
+    terminal.open(terminalEl);
+  }
   fitAddon.fit();
 
   // PTY data handler
@@ -650,14 +669,6 @@ function updateConsoleDrawer() {
 
   // Auto-scroll to bottom
   consoleDrawerMessages.scrollTop = consoleDrawerMessages.scrollHeight;
-}
-
-function getConsoleContext(): string {
-  if (consoleBuffer.length === 0) return '';
-
-  const recent = consoleBuffer.slice(-5);
-  const lines = recent.map(m => `[${m.level.toUpperCase()}] ${m.message.slice(0, 100)}`);
-  return `\n**Recent Console:**\n\`\`\`\n${lines.join('\n')}\n\`\`\`\n`;
 }
 
 // Start Claude

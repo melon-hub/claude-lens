@@ -121,10 +121,11 @@ export class BridgeServer {
               result = { success: true };
               break;
 
-            case '/screenshot':
+            case '/screenshot': {
               const imageData = await this.handler.screenshot(body['selector'] as string | undefined);
               result = { image: imageData };
               break;
+            }
 
             case '/console':
               result = await this.handler.getConsoleLogs(

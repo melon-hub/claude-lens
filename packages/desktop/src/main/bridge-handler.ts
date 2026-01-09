@@ -209,7 +209,7 @@ export function createBridgeHandler(
       `);
     },
 
-    async screenshot(selector?: string): Promise<string> {
+    async screenshot(_selector?: string): Promise<string> {
       const view = getBrowserView();
       if (!view) throw new Error('Browser not available');
 

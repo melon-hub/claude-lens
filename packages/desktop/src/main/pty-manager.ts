@@ -7,7 +7,6 @@
 
 import * as pty from 'node-pty';
 import * as os from 'os';
-import * as path from 'path';
 
 export class PtyManager {
   private ptyProcess: pty.IPty | null = null;

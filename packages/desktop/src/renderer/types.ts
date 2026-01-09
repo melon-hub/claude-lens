@@ -26,6 +26,22 @@ export interface ElementInfo {
   framework?: FrameworkInfo;
 }
 
+export interface ProjectInfo {
+  path: string;
+  name: string;
+  type: 'node' | 'static' | 'unknown';
+  packageJson?: {
+    name: string;
+    scripts?: Record<string, string>;
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  devCommand?: string;
+  suggestedPort?: number;
+  framework?: 'react' | 'vue' | 'svelte' | 'next' | 'vite' | 'angular' | 'unknown';
+  entryFile?: string;
+}
+
 export interface ClaudeLensAPI {
   version: string;
   pty: {
@@ -34,6 +50,7 @@ export interface ClaudeLensAPI {
     resize: (cols: number, rows: number) => Promise<void>;
     onData: (callback: (data: string) => void) => void;
     onExit: (callback: (code: number) => void) => void;
+    onAutoStarted: (callback: () => void) => void;
   };
   browser: {
     navigate: (url: string) => Promise<{ success: boolean; error?: string }>;
@@ -47,6 +64,18 @@ export interface ClaudeLensAPI {
     disableInspect: () => Promise<void>;
     onElementSelected: (callback: (element: ElementInfo) => void) => void;
     onConsoleMessage: (callback: (msg: { level: string; message: string; timestamp: number }) => void) => void;
+  };
+  project: {
+    open: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
+    start: (options: { useDevServer: boolean }) => Promise<{ success: boolean; url?: string; error?: string }>;
+    getInfo: () => Promise<ProjectInfo | null>;
+    stopServer: () => Promise<{ success: boolean; error?: string }>;
+    onDetected: (callback: (info: ProjectInfo) => void) => void;
+  };
+  server: {
+    onOutput: (callback: (data: string) => void) => void;
+    onReady: (callback: (info: { port: number }) => void) => void;
+    onExit: (callback: (info: { code: number }) => void) => void;
   };
   sendToClaude: (prompt: string, elementContext: string) => Promise<{ success: boolean }>;
 }

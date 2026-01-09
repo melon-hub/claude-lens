@@ -7,12 +7,16 @@
  * Uses embedded BrowserView for the browser panel - no external Chrome needed.
  */
 
-import { app, BrowserWindow, BrowserView, ipcMain, shell, dialog, clipboard } from 'electron';
+import { app, BrowserWindow, BrowserView, ipcMain, shell, dialog, clipboard, Menu } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
 import { PtyManager } from './pty-manager';
 import { startMCPServer, stopMCPServer, setBrowserView, setConsoleBuffer } from './mcp-server';
 import { BridgeServer } from '@claude-lens/core';
 import { createBridgeHandler } from './bridge-handler';
+import { analyzeProject, ProjectInfo, detectPackageManager } from './project-manager';
+import { DevServerManager } from './dev-server';
+import { StaticServer } from './static-server';
 
 // Enable hot reload in development
 if (process.env.NODE_ENV === 'development') {
@@ -52,6 +56,11 @@ let browserView: BrowserView | null = null;
 let ptyManager: PtyManager | null = null;
 let bridgeServer: BridgeServer | null = null;
 
+// Project management state
+let currentProject: ProjectInfo | null = null;
+let devServerManager: DevServerManager | null = null;
+let staticServer: StaticServer | null = null;
+
 // Console message buffer for MCP server
 interface ConsoleMessage {
   level: string;
@@ -60,6 +69,328 @@ interface ConsoleMessage {
 }
 const consoleBuffer: ConsoleMessage[] = [];
 const MAX_CONSOLE_MESSAGES = 100;
+
+/**
+ * Create the application menu
+ */
+function createMenu(): void {
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Open Project...',
+          accelerator: 'CmdOrCtrl+O',
+          click: () => openProjectDialog(),
+        },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'Documentation',
+          click: () => shell.openExternal('https://github.com/melon-hub/claude-lens'),
+        },
+        {
+          label: 'Report Issue',
+          click: () => shell.openExternal('https://github.com/melon-hub/claude-lens/issues'),
+        },
+      ],
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
+/**
+ * Show the open project dialog
+ */
+async function openProjectDialog(): Promise<void> {
+  if (!mainWindow) return;
+
+  // Focus and bring window to front before showing dialog
+  // This helps with multi-monitor setups on Linux/GTK where dialogs
+  // may appear on the wrong screen (Electron issue #32160)
+  mainWindow.focus();
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: 'Open Project Folder',
+    defaultPath: process.env.HOME || process.env.USERPROFILE,
+  });
+
+  if (!result.canceled && result.filePaths.length > 0) {
+    await openProject(result.filePaths[0]);
+  }
+}
+
+/**
+ * Open and analyze a project folder
+ */
+async function openProject(projectPath: string): Promise<void> {
+  try {
+    // Analyze the project
+    currentProject = await analyzeProject(projectPath);
+
+    // Update dev command to use detected package manager
+    if (currentProject.devCommand && currentProject.packageJson?.scripts) {
+      const pm = detectPackageManager(projectPath);
+      const scripts = currentProject.packageJson.scripts;
+      if (scripts.dev) {
+        currentProject.devCommand = pm === 'npm' ? 'npm run dev' : `${pm} dev`;
+      } else if (scripts.start) {
+        currentProject.devCommand = pm === 'npm' ? 'npm start' : `${pm} start`;
+      }
+    }
+
+    // Send to renderer to show dialog
+    mainWindow?.webContents.send('project:detected', currentProject);
+  } catch (err) {
+    console.error('Failed to analyze project:', err);
+    dialog.showErrorBox('Error', `Failed to open project: ${err}`);
+  }
+}
+
+/**
+ * Inject Claude Lens context into a project directory
+ * Creates .claude/settings.local.md with instructions for the embedded Claude instance
+ */
+async function injectClaudeLensContext(projectPath: string): Promise<void> {
+  const claudeDir = path.join(projectPath, '.claude');
+
+  // Create .claude directory if it doesn't exist
+  if (!fs.existsSync(claudeDir)) {
+    fs.mkdirSync(claudeDir, { recursive: true });
+  }
+
+  // Create settings file with Claude Lens integration instructions
+  const claudeLensInstructions = `# Claude Lens Integration
+
+You are running inside **Claude Lens Desktop** with an embedded browser.
+
+## CRITICAL RULES
+
+1. **DO NOT use Playwright tools** - They won't work here
+2. **Use ONLY standard CSS selectors** - No Playwright pseudo-selectors
+
+## Available MCP Tools
+
+- \`claude_lens/screenshot\` - Take a screenshot (do this FIRST to see the page)
+- \`claude_lens/click\` - Click an element
+- \`claude_lens/type\` - Type text into an input
+- \`claude_lens/inspect_element\` - Get element details
+- \`claude_lens/highlight_element\` - Highlight an element
+- \`claude_lens/get_console\` - Get console logs
+- \`claude_lens/reload\` - Reload after code changes
+- \`claude_lens/navigate\` - Go to a URL
+- \`claude_lens/wait_for\` - Wait for element/text
+
+## SELECTOR SYNTAX - IMPORTANT!
+
+**These are STANDARD CSS selectors, NOT Playwright selectors.**
+
+### WRONG (Playwright-only, will fail):
+- \`:has-text("Submit")\` - NOT valid CSS
+- \`:text("Click me")\` - NOT valid CSS
+- \`button:has-text("Edit")\` - NOT valid CSS
+
+### CORRECT (Standard CSS):
+- \`button\` - Tag name
+- \`#submit-btn\` - ID
+- \`.btn-primary\` - Class
+- \`[data-testid="submit"]\` - Data attribute
+- \`button[type="submit"]\` - Attribute selector
+- \`[aria-label="Edit"]\` - Aria attribute
+- \`button.edit-btn\` - Tag + class
+- \`form button\` - Descendant
+- \`input[placeholder*="search"]\` - Partial attribute match
+
+### Finding the Right Selector
+
+1. **Take a screenshot first** to see what's on screen
+2. **Use inspect_element** on a general selector to see attributes
+3. **Look for**: id, data-testid, aria-label, unique classes
+4. **Combine selectors** if needed: \`nav button.active\`
+
+## Efficient Workflow
+
+1. \`screenshot\` → See the current state
+2. \`click\` → Use a STANDARD CSS selector
+3. \`screenshot\` → Verify the action worked
+4. If click fails, try: id > data-* attribute > aria-label > class
+
+## Project Files
+
+Source files are in: \`${projectPath}\`
+After editing code, use \`claude_lens/reload\` to see changes.
+`;
+
+  const settingsPath = path.join(claudeDir, 'settings.local.md');
+  fs.writeFileSync(settingsPath, claudeLensInstructions);
+
+  // Create .mcp.json to enable MCP tools in Claude Code
+  // Use the local mcp-server from claude-lens monorepo
+  // __dirname at runtime is dist/main/, so we need to go up 3 levels to reach packages/
+  const mcpServerPath = path.resolve(__dirname, '../../../mcp-server/dist/index.js');
+  console.log('Looking for MCP server at:', mcpServerPath);
+
+  // Check if the mcp-server exists (development mode)
+  if (fs.existsSync(mcpServerPath)) {
+    const mcpConfig = {
+      mcpServers: {
+        'claude-lens': {
+          command: 'node',
+          args: [mcpServerPath],
+          env: {
+            CLAUDE_LENS_BRIDGE_URL: 'http://localhost:9333'
+          }
+        }
+      }
+    };
+
+    const mcpConfigPath = path.join(projectPath, '.mcp.json');
+    fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
+    console.log('Created MCP config:', mcpConfigPath);
+
+    // Create settings.json to auto-approve MCP tools (reduces permission prompts)
+    const settingsJsonPath = path.join(claudeDir, 'settings.json');
+    const settingsJson = {
+      permissions: {
+        allow: [
+          'mcp__claude-lens__*'  // Allow all claude-lens MCP tools
+        ]
+      }
+    };
+    fs.writeFileSync(settingsJsonPath, JSON.stringify(settingsJson, null, 2));
+    console.log('Created permissions config:', settingsJsonPath);
+  }
+
+  console.log('Injected Claude Lens context into project:', settingsPath);
+}
+
+/**
+ * Start the project (dev server or static server)
+ */
+async function startProject(useDevServer: boolean): Promise<{ success: boolean; url?: string; error?: string }> {
+  if (!currentProject) {
+    return { success: false, error: 'No project loaded' };
+  }
+
+  try {
+    const port = currentProject.suggestedPort || 3000;
+    let url: string;
+
+    // Stop any existing servers
+    if (devServerManager) {
+      await devServerManager.stop();
+      devServerManager = null;
+    }
+    if (staticServer) {
+      await staticServer.stop();
+      staticServer = null;
+    }
+
+    if (useDevServer && currentProject.devCommand) {
+      // Start dev server
+      devServerManager = new DevServerManager();
+
+      devServerManager.setOnOutput((data) => {
+        mainWindow?.webContents.send('server:output', data);
+      });
+
+      devServerManager.setOnReady(() => {
+        mainWindow?.webContents.send('server:ready', { port });
+      });
+
+      devServerManager.setOnExit((code) => {
+        mainWindow?.webContents.send('server:exit', { code });
+      });
+
+      await devServerManager.start(currentProject.path, currentProject.devCommand, port);
+      url = `http://localhost:${port}`;
+    } else {
+      // Use built-in static server
+      staticServer = new StaticServer();
+      const entryFile = currentProject.entryFile || 'index.html';
+      await staticServer.start(currentProject.path, port, entryFile);
+      url = `http://localhost:${port}`;
+      // Notify renderer that server is ready (static server is immediately ready)
+      mainWindow?.webContents.send('server:ready', { port });
+    }
+
+    // Navigate the browser to the URL
+    // Create BrowserView if it doesn't exist yet
+    if (!browserView && mainWindow) {
+      browserView = new BrowserView({
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+        },
+      });
+      mainWindow.setBrowserView(browserView);
+      updateBrowserViewBounds();
+      setupBrowserViewMessaging();
+      setBrowserView(browserView);
+    }
+
+    if (browserView) {
+      await browserView.webContents.loadURL(url);
+    }
+
+    // Inject Claude Lens context into project before starting Claude
+    await injectClaudeLensContext(currentProject.path);
+
+    // Restart Claude with project context
+    if (ptyManager) {
+      ptyManager.dispose();
+    }
+    ptyManager = new PtyManager();
+    setupPtyForwarding();
+    await ptyManager.start({ cwd: currentProject.path });
+
+    // Notify renderer that Claude started automatically
+    mainWindow?.webContents.send('pty:autoStarted');
+
+    return { success: true, url };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error('Failed to start project:', errorMsg);
+    return { success: false, error: errorMsg };
+  }
+}
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -699,6 +1030,40 @@ function setupBrowserViewMessaging() {
   });
 }
 
+// Project management handlers
+ipcMain.handle('project:open', async (_event, folderPath: string) => {
+  try {
+    await openProject(folderPath);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+});
+
+ipcMain.handle('project:start', async (_event, options: { useDevServer: boolean }) => {
+  return startProject(options.useDevServer);
+});
+
+ipcMain.handle('project:getInfo', () => {
+  return currentProject;
+});
+
+ipcMain.handle('project:stopServer', async () => {
+  try {
+    if (devServerManager) {
+      await devServerManager.stop();
+      devServerManager = null;
+    }
+    if (staticServer) {
+      await staticServer.stop();
+      staticServer = null;
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+});
+
 // Send element to Claude - the key seamless integration!
 ipcMain.handle('send-to-claude', async (_event, prompt: string, elementContext: string) => {
   if (!ptyManager) return { success: false, error: 'Claude not running' };
@@ -727,6 +1092,7 @@ function setupPtyForwarding() {
 
 // App lifecycle
 app.whenReady().then(async () => {
+  createMenu();
   await createWindow();
   setupPtyForwarding();
 
@@ -760,9 +1126,20 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
   stopMCPServer();
   bridgeServer?.stop();
+
+  // Clean up project servers
+  if (devServerManager) {
+    await devServerManager.stop();
+    devServerManager = null;
+  }
+  if (staticServer) {
+    await staticServer.stop();
+    staticServer = null;
+  }
+
   if (process.platform !== 'darwin') {
     app.quit();
   }

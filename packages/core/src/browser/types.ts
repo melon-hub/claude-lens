@@ -90,6 +90,23 @@ export interface ConsoleLogOptions {
   since?: number;
 }
 
+// Automation options
+export interface ClickOptions {
+  button?: 'left' | 'right' | 'middle';
+  clickCount?: number;
+  delay?: number;
+}
+
+export interface TypeOptions {
+  clearFirst?: boolean;
+  delay?: number;
+}
+
+export interface WaitForOptions {
+  timeout?: number;
+  visible?: boolean;
+}
+
 /**
  * Browser adapter interface - implemented by CDP adapter, Electron adapter, etc.
  */
@@ -126,4 +143,9 @@ export interface BrowserAdapter {
   onNavigate(callback: (url: string) => void): void;
   onLoad(callback: () => void): void;
   onError(callback: (error: Error) => void): void;
+
+  // Automation
+  click(selector: string, options?: ClickOptions): Promise<void>;
+  type(selector: string, text: string, options?: TypeOptions): Promise<void>;
+  waitFor(selector: string, options?: WaitForOptions): Promise<ElementInfo>;
 }

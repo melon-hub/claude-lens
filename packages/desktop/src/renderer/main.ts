@@ -6,7 +6,7 @@
  */
 
 import { Terminal } from 'xterm';
-import type { ElementInfo } from './types';
+import type { ElementInfo, ProjectInfo } from './types';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -102,6 +102,117 @@ interface ConsoleMessage {
 const consoleBuffer: ConsoleMessage[] = [];
 const MAX_CONSOLE_MESSAGES = 50;
 
+// Show project modal when a project is detected
+function showProjectModal(project: ProjectInfo) {
+  // Remove existing modal if any
+  const existing = document.querySelector('.project-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.className = 'project-modal';
+
+  const content = document.createElement('div');
+  content.className = 'project-modal-content';
+
+  const title = document.createElement('h2');
+  title.textContent = `Open Project: ${project.name}`;
+  content.appendChild(title);
+
+  const info = document.createElement('div');
+  info.className = 'project-info';
+
+  const typeLabel = project.type === 'node' ? 'Node.js' : project.type === 'static' ? 'Static HTML' : 'Unknown';
+  const typeP = document.createElement('p');
+  const typeStrong = document.createElement('strong');
+  typeStrong.textContent = 'Type: ';
+  typeP.appendChild(typeStrong);
+  typeP.appendChild(document.createTextNode(typeLabel));
+  info.appendChild(typeP);
+
+  if (project.framework && project.framework !== 'unknown') {
+    const frameworkP = document.createElement('p');
+    const frameworkStrong = document.createElement('strong');
+    frameworkStrong.textContent = 'Framework: ';
+    frameworkP.appendChild(frameworkStrong);
+    const frameworkLabel = project.framework.charAt(0).toUpperCase() + project.framework.slice(1);
+    frameworkP.appendChild(document.createTextNode(frameworkLabel));
+    info.appendChild(frameworkP);
+  }
+
+  if (project.suggestedPort) {
+    const portP = document.createElement('p');
+    const portStrong = document.createElement('strong');
+    portStrong.textContent = 'Port: ';
+    portP.appendChild(portStrong);
+    portP.appendChild(document.createTextNode(String(project.suggestedPort)));
+    info.appendChild(portP);
+  }
+
+  const pathP = document.createElement('p');
+  pathP.className = 'project-path';
+  const pathStrong = document.createElement('strong');
+  pathStrong.textContent = 'Path: ';
+  pathP.appendChild(pathStrong);
+  const pathCode = document.createElement('code');
+  pathCode.textContent = project.path;
+  pathP.appendChild(pathCode);
+  info.appendChild(pathP);
+  content.appendChild(info);
+
+  const buttons = document.createElement('div');
+  buttons.className = 'project-buttons';
+
+  if (project.devCommand) {
+    const devBtn = document.createElement('button');
+    devBtn.className = 'btn btn-primary';
+    devBtn.textContent = `Start with ${project.devCommand}`;
+    devBtn.addEventListener('click', async () => {
+      devBtn.disabled = true;
+      devBtn.textContent = 'Starting...';
+      const result = await window.claudeLens.project.start({ useDevServer: true });
+      modal.remove();
+      if (result.success && result.url) {
+        urlInput.value = result.url;
+        browserLoaded = true;
+        placeholder.classList.add('hidden');
+        setStatus('Connected', true);
+      } else {
+        alert(`Failed to start dev server: ${result.error}`);
+      }
+    });
+    buttons.appendChild(devBtn);
+  }
+
+  const staticBtn = document.createElement('button');
+  staticBtn.className = project.devCommand ? 'btn' : 'btn btn-primary';
+  staticBtn.textContent = 'Start with Built-in Server';
+  staticBtn.addEventListener('click', async () => {
+    staticBtn.disabled = true;
+    staticBtn.textContent = 'Starting...';
+    const result = await window.claudeLens.project.start({ useDevServer: false });
+    modal.remove();
+    if (result.success && result.url) {
+      urlInput.value = result.url;
+      browserLoaded = true;
+      placeholder.classList.add('hidden');
+      setStatus('Connected', true);
+    } else {
+      alert(`Failed to start server: ${result.error}`);
+    }
+  });
+  buttons.appendChild(staticBtn);
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => modal.remove());
+  buttons.appendChild(cancelBtn);
+
+  content.appendChild(buttons);
+  modal.appendChild(content);
+  document.body.appendChild(modal);
+}
+
 // Initialize
 async function init() {
   // Display version
@@ -137,6 +248,12 @@ async function init() {
     if (claudeRunning) {
       window.claudeLens.pty.resize(terminal.cols, terminal.rows);
     }
+    // Update browser bounds when window resizes
+    if (browserLoaded) {
+      const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
+      const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
+      window.claudeLens.browser.updateBounds(browserPanel.offsetWidth, drawerHeight);
+    }
   });
 
   // Set up resizers
@@ -155,6 +272,32 @@ async function init() {
     inspectBtn.classList.remove('btn-primary');
     setStatus('Element selected', true);
     addSelectedElement(elementData);
+  });
+
+  // Listen for project detection (File > Open Project)
+  window.claudeLens.project.onDetected((project) => {
+    showProjectModal(project);
+  });
+
+  // Handle Claude auto-starting when a project opens
+  window.claudeLens.pty.onAutoStarted(() => {
+    claudeRunning = true;
+    startClaudeBtn.textContent = 'Running';
+    window.claudeLens.pty.resize(terminal.cols, terminal.rows);
+    terminal.focus();
+  });
+
+  // Handle server ready event
+  window.claudeLens.server.onReady((info) => {
+    setStatus(`Server ready on port ${info.port}`, true);
+    const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
+    const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
+    window.claudeLens.browser.updateBounds(browserPanel.offsetWidth, drawerHeight);
+  });
+
+  // Handle server exit event
+  window.claudeLens.server.onExit((info) => {
+    setStatus(`Server exited (code ${info.code})`);
   });
 }
 

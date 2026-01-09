@@ -1,5 +1,22 @@
 /* Claude Lens Desktop Styles - Cursor-style UI */
 
+/* Bundled terminal font - JetBrains Mono Nerd Font with 3,500+ glyphs */
+@font-face {
+  font-family: 'JetBrains Mono NF Bundled';
+  src: url('./fonts/JetBrainsMonoNerdFontMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono NF Bundled';
+  src: url('./fonts/JetBrainsMonoNerdFontMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg-primary: #1e1e1e;
   --bg-secondary: #252526;
@@ -685,4 +702,92 @@ body {
 
 .prop-value {
   color: var(--success);
+}
+
+/* Project Modal Styles */
+.project-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.project-modal-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  min-width: 400px;
+  max-width: 600px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.project-modal-content h2 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.project-info {
+  margin-bottom: 20px;
+}
+
+.project-info p {
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.project-info strong {
+  color: var(--text-primary);
+}
+
+.project-info code {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: var(--info);
+}
+
+.project-path {
+  word-break: break-all;
+}
+
+.project-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.project-buttons .btn {
+  min-width: 140px;
+}
+
+/* Drag and Drop Overlay */
+body.drag-over::after {
+  content: 'Drop folder to open project';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 120, 212, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 600;
+  color: white;
+  z-index: 9999;
+  border: 4px dashed var(--accent);
+  pointer-events: none;
 }

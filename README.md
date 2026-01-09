@@ -4,7 +4,7 @@
 
 Visual web development companion for Claude Code that bridges what you *see* with what Claude *knows*.
 
-**Status:** Working Prototype | VS Code Extension (v0.0.1) | Desktop App (v0.1.5)
+**Status:** Working Prototype | VS Code Extension (v0.1.0) | Desktop App (v0.2.0)
 
 ---
 

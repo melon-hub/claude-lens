@@ -8,7 +8,13 @@
  */
 
 import http from 'http';
-import type { ElementInfo, ConsoleMessage } from '../browser/types.js';
+import type {
+  ElementInfo,
+  ConsoleMessage,
+  ClickOptions,
+  TypeOptions,
+  WaitForOptions,
+} from '../browser/types.js';
 
 export interface BridgeState {
   connected: boolean;
@@ -27,6 +33,10 @@ export interface BridgeHandler {
   screenshot(selector?: string): Promise<string>; // base64
   getConsoleLogs(level?: string, limit?: number): Promise<ConsoleMessage[]>;
   reload(): Promise<void>;
+  // Automation
+  click(selector: string, options?: ClickOptions): Promise<void>;
+  type(selector: string, text: string, options?: TypeOptions): Promise<void>;
+  waitFor(selector: string, options?: WaitForOptions): Promise<ElementInfo>;
 }
 
 const DEFAULT_PORT = 9333;
@@ -126,6 +136,31 @@ export class BridgeServer {
             case '/reload':
               await this.handler.reload();
               result = { success: true };
+              break;
+
+            // Automation routes
+            case '/click':
+              await this.handler.click(
+                body['selector'] as string,
+                body['options'] as ClickOptions | undefined
+              );
+              result = { success: true };
+              break;
+
+            case '/type':
+              await this.handler.type(
+                body['selector'] as string,
+                body['text'] as string,
+                body['options'] as TypeOptions | undefined
+              );
+              result = { success: true };
+              break;
+
+            case '/wait-for':
+              result = await this.handler.waitFor(
+                body['selector'] as string,
+                body['options'] as WaitForOptions | undefined
+              );
               break;
 
             default:
@@ -239,6 +274,20 @@ export class BridgeClient {
 
   async reload(): Promise<void> {
     await this.request('/reload');
+  }
+
+  // Automation methods
+
+  async click(selector: string, options?: ClickOptions): Promise<void> {
+    await this.request('/click', { selector, options });
+  }
+
+  async type(selector: string, text: string, options?: TypeOptions): Promise<void> {
+    await this.request('/type', { selector, text, options });
+  }
+
+  async waitFor(selector: string, options?: WaitForOptions): Promise<ElementInfo> {
+    return this.request<ElementInfo>('/wait-for', { selector, options });
   }
 
   async isConnected(): Promise<boolean> {

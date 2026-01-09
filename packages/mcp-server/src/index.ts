@@ -44,6 +44,27 @@ const ScreenshotSchema = z.object({
   selector: z.string().optional().describe('Element selector (omit for full viewport)'),
 });
 
+// Automation schemas
+const ClickSchema = z.object({
+  selector: z.string().describe('CSS selector of element to click'),
+  button: z.enum(['left', 'right', 'middle']).optional().default('left'),
+  clickCount: z.number().optional().default(1),
+  delay: z.number().optional().describe('Delay before clicking (ms)'),
+});
+
+const TypeSchema = z.object({
+  selector: z.string().describe('CSS selector of input element'),
+  text: z.string().describe('Text to type'),
+  clearFirst: z.boolean().optional().default(false),
+  delay: z.number().optional().describe('Delay between keystrokes (ms)'),
+});
+
+const WaitForSchema = z.object({
+  selector: z.string().describe('CSS selector to wait for'),
+  timeout: z.number().optional().default(5000),
+  visible: z.boolean().optional().default(true),
+});
+
 // Create server
 const server = new Server(
   {
@@ -152,6 +173,84 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {},
+        },
+      },
+      {
+        name: 'claude_lens/click',
+        description:
+          'Click an element in the browser. Use this to interact with buttons, links, checkboxes, and other clickable elements.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            selector: {
+              type: 'string',
+              description: 'CSS selector of element to click',
+            },
+            button: {
+              type: 'string',
+              enum: ['left', 'right', 'middle'],
+              description: 'Mouse button (default: left)',
+            },
+            clickCount: {
+              type: 'number',
+              description: '1 for single-click, 2 for double-click (default: 1)',
+            },
+            delay: {
+              type: 'number',
+              description: 'Delay before clicking in ms',
+            },
+          },
+          required: ['selector'],
+        },
+      },
+      {
+        name: 'claude_lens/type',
+        description:
+          'Type text into an input field or textarea. Focuses the element first, then types each character.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            selector: {
+              type: 'string',
+              description: 'CSS selector of input element',
+            },
+            text: {
+              type: 'string',
+              description: 'Text to type',
+            },
+            clearFirst: {
+              type: 'boolean',
+              description: 'Clear existing value before typing (default: false)',
+            },
+            delay: {
+              type: 'number',
+              description: 'Delay between keystrokes in ms',
+            },
+          },
+          required: ['selector', 'text'],
+        },
+      },
+      {
+        name: 'claude_lens/wait_for',
+        description:
+          'Wait for an element to appear in the DOM. Use before interacting with dynamically loaded content.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            selector: {
+              type: 'string',
+              description: 'CSS selector to wait for',
+            },
+            timeout: {
+              type: 'number',
+              description: 'Maximum wait time in ms (default: 5000)',
+            },
+            visible: {
+              type: 'boolean',
+              description: 'Wait for element to be visible, not just present (default: true)',
+            },
+          },
+          required: ['selector'],
         },
       },
     ],
@@ -323,6 +422,47 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
             {
               type: 'text',
               text: 'Page reloaded successfully. Take a screenshot to see the updated page.',
+            },
+          ],
+        };
+      }
+
+      case 'claude_lens/click': {
+        const { selector, button, clickCount, delay } = ClickSchema.parse(args);
+        await bridge.click(selector, { button, clickCount, delay });
+        const clickType = clickCount === 2 ? 'Double-clicked' : 'Clicked';
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `${clickType} element: ${selector}`,
+            },
+          ],
+        };
+      }
+
+      case 'claude_lens/type': {
+        const { selector, text, clearFirst, delay } = TypeSchema.parse(args);
+        await bridge.type(selector, text, { clearFirst, delay });
+        const preview = text.length > 50 ? text.substring(0, 50) + '...' : text;
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Typed "${preview}" into ${selector}${clearFirst ? ' (cleared first)' : ''}`,
+            },
+          ],
+        };
+      }
+
+      case 'claude_lens/wait_for': {
+        const { selector, timeout, visible } = WaitForSchema.parse(args);
+        const element = await bridge.waitFor(selector, { timeout, visible });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Element found: <${element.tagName}> matching ${selector}`,
             },
           ],
         };

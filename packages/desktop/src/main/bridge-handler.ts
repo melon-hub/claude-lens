@@ -6,7 +6,15 @@
  */
 
 import { BrowserView } from 'electron';
-import type { BridgeHandler, BridgeState, ConsoleMessage as CoreConsoleMessage } from '@claude-lens/core';
+import type {
+  BridgeHandler,
+  BridgeState,
+  ConsoleMessage as CoreConsoleMessage,
+  ElementInfo,
+  ClickOptions,
+  TypeOptions,
+  WaitForOptions,
+} from '@claude-lens/core';
 
 // Local console message type (from main process)
 interface LocalConsoleMessage {
@@ -225,6 +233,136 @@ export function createBridgeHandler(
       if (!view) return;
 
       view.webContents.reload();
+    },
+
+    async click(selector: string, options?: ClickOptions): Promise<void> {
+      const view = getBrowserView();
+      if (!view) throw new Error('Browser not available');
+
+      const { button = 'left', clickCount = 1, delay } = options ?? {};
+
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+
+      await view.webContents.executeJavaScript(`
+        (function() {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) throw new Error('Element not found: ${selector.replace(/'/g, "\\'")}');
+
+          const rect = el.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+
+          const eventInit = {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX: x,
+            clientY: y,
+            button: ${button === 'left' ? 0 : button === 'middle' ? 1 : 2}
+          };
+
+          for (let i = 0; i < ${clickCount}; i++) {
+            el.dispatchEvent(new MouseEvent('mousedown', eventInit));
+            el.dispatchEvent(new MouseEvent('mouseup', eventInit));
+            el.dispatchEvent(new MouseEvent('click', eventInit));
+          }
+        })()
+      `);
+    },
+
+    async type(selector: string, text: string, options?: TypeOptions): Promise<void> {
+      const view = getBrowserView();
+      if (!view) throw new Error('Browser not available');
+
+      const { clearFirst = false, delay = 0 } = options ?? {};
+
+      await view.webContents.executeJavaScript(`
+        (async function() {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) throw new Error('Element not found: ${selector.replace(/'/g, "\\'")}');
+
+          el.focus();
+
+          if (${clearFirst}) {
+            el.value = '';
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+
+          const text = ${JSON.stringify(text)};
+          const delay = ${delay};
+
+          for (const char of text) {
+            el.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }));
+            el.value = (el.value || '') + char;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
+
+            if (delay > 0) {
+              await new Promise(r => setTimeout(r, delay));
+            }
+          }
+        })()
+      `);
+    },
+
+    async waitFor(selector: string, options?: WaitForOptions): Promise<ElementInfo> {
+      const view = getBrowserView();
+      if (!view) throw new Error('Browser not available');
+
+      const { timeout = 5000, visible = true } = options ?? {};
+      const start = Date.now();
+
+      while (Date.now() - start < timeout) {
+        const result = await view.webContents.executeJavaScript(`
+          (function() {
+            const el = document.querySelector(${JSON.stringify(selector)});
+            if (!el) return null;
+
+            const styles = window.getComputedStyle(el);
+            const isVisible = styles.display !== 'none';
+
+            if (${visible} && !isVisible) return null;
+
+            const rect = el.getBoundingClientRect();
+            return {
+              tagName: el.tagName.toLowerCase(),
+              id: el.id || undefined,
+              classes: Array.from(el.classList),
+              selector: ${JSON.stringify(selector)},
+              xpath: '',
+              attributes: Object.fromEntries(
+                Array.from(el.attributes).map(a => [a.name, a.value])
+              ),
+              computedStyles: {
+                display: styles.display,
+                position: styles.position,
+                width: styles.width,
+                height: styles.height,
+                margin: styles.margin,
+                padding: styles.padding,
+                color: styles.color,
+                backgroundColor: styles.backgroundColor,
+                fontSize: styles.fontSize,
+                fontFamily: styles.fontFamily,
+              },
+              boundingBox: {
+                x: Math.round(rect.x),
+                y: Math.round(rect.y),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+              },
+              parentChain: [],
+              siblingCount: 0,
+              childCount: el.childElementCount,
+            };
+          })()
+        `);
+
+        if (result) return result as ElementInfo;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      throw new Error(`Element not found within ${timeout}ms: ${selector}`);
     },
   };
 }

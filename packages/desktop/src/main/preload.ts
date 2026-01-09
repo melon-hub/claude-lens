@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld('claudeLens', {
     onExit: (callback: (code: number) => void) => {
       ipcRenderer.on('pty:exit', (_event, code) => callback(code));
     },
+    onAutoStarted: (callback: () => void) => {
+      ipcRenderer.on('pty:autoStarted', () => callback());
+    },
   },
 
   // Embedded Browser APIs
@@ -44,6 +47,30 @@ contextBridge.exposeInMainWorld('claudeLens', {
     },
   },
 
+  // Project management APIs
+  project: {
+    open: (folderPath: string) => ipcRenderer.invoke('project:open', folderPath),
+    start: (options: { useDevServer: boolean }) => ipcRenderer.invoke('project:start', options),
+    getInfo: () => ipcRenderer.invoke('project:getInfo'),
+    stopServer: () => ipcRenderer.invoke('project:stopServer'),
+    onDetected: (callback: (info: unknown) => void) => {
+      ipcRenderer.on('project:detected', (_event, info) => callback(info));
+    },
+  },
+
+  // Server events (dev server / static server)
+  server: {
+    onOutput: (callback: (data: string) => void) => {
+      ipcRenderer.on('server:output', (_event, data) => callback(data));
+    },
+    onReady: (callback: (info: { port: number }) => void) => {
+      ipcRenderer.on('server:ready', (_event, info) => callback(info));
+    },
+    onExit: (callback: (info: { code: number }) => void) => {
+      ipcRenderer.on('server:exit', (_event, info) => callback(info));
+    },
+  },
+
   // The key integration - send prompt to Claude with element context
   sendToClaude: (prompt: string, elementContext: string) =>
     ipcRenderer.invoke('send-to-claude', prompt, elementContext),
@@ -57,6 +84,7 @@ export interface ClaudeLensAPI {
     resize: (cols: number, rows: number) => Promise<void>;
     onData: (callback: (data: string) => void) => void;
     onExit: (callback: (code: number) => void) => void;
+    onAutoStarted: (callback: () => void) => void;
   };
   browser: {
     navigate: (url: string) => Promise<{ success: boolean; error?: string }>;
@@ -78,7 +106,35 @@ export interface ClaudeLensAPI {
     disableInspect: () => Promise<void>;
     onElementSelected: (callback: (element: unknown) => void) => void;
   };
+  project: {
+    open: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
+    start: (options: { useDevServer: boolean }) => Promise<{ success: boolean; url?: string; error?: string }>;
+    getInfo: () => Promise<ProjectInfo | null>;
+    stopServer: () => Promise<{ success: boolean; error?: string }>;
+    onDetected: (callback: (info: ProjectInfo) => void) => void;
+  };
+  server: {
+    onOutput: (callback: (data: string) => void) => void;
+    onReady: (callback: (info: { port: number }) => void) => void;
+    onExit: (callback: (info: { code: number }) => void) => void;
+  };
   sendToClaude: (prompt: string, elementContext: string) => Promise<{ success: boolean }>;
+}
+
+export interface ProjectInfo {
+  path: string;
+  name: string;
+  type: 'node' | 'static' | 'unknown';
+  packageJson?: {
+    name: string;
+    scripts?: Record<string, string>;
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  devCommand?: string;
+  suggestedPort?: number;
+  framework?: 'react' | 'vue' | 'svelte' | 'next' | 'vite' | 'angular' | 'unknown';
+  entryFile?: string;
 }
 
 declare global {

@@ -16,7 +16,15 @@ import {
   redactSecrets,
   BridgeServer,
 } from '@claude-lens/core';
-import type { ElementInfo, BridgeHandler, BridgeState, ConsoleMessage } from '@claude-lens/core';
+import type {
+  ElementInfo,
+  BridgeHandler,
+  BridgeState,
+  ConsoleMessage,
+  ClickOptions,
+  TypeOptions,
+  WaitForOptions,
+} from '@claude-lens/core';
 
 let browserPanel: vscode.WebviewPanel | undefined;
 let cdpAdapter: CDPAdapter | undefined;
@@ -123,6 +131,21 @@ async function startBridgeServer(): Promise<void> {
     async reload() {
       if (!cdpAdapter?.isConnected()) return;
       await cdpAdapter.reload();
+    },
+
+    async click(selector: string, options?: ClickOptions): Promise<void> {
+      if (!cdpAdapter?.isConnected()) throw new Error('Not connected');
+      await cdpAdapter.click(selector, options);
+    },
+
+    async type(selector: string, text: string, options?: TypeOptions): Promise<void> {
+      if (!cdpAdapter?.isConnected()) throw new Error('Not connected');
+      await cdpAdapter.type(selector, text, options);
+    },
+
+    async waitFor(selector: string, options?: WaitForOptions): Promise<ElementInfo> {
+      if (!cdpAdapter?.isConnected()) throw new Error('Not connected');
+      return cdpAdapter.waitFor(selector, options);
     },
   };
 

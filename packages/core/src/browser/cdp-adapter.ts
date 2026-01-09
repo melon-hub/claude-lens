@@ -19,6 +19,9 @@ import type {
   ScreenshotOptions,
   ConsoleMessage,
   ConsoleLogOptions,
+  ClickOptions,
+  TypeOptions,
+  WaitForOptions,
 } from './types.js';
 
 // CDP client type (simplified for now)
@@ -68,6 +71,22 @@ interface CDPClient {
   Network: {
     enable(): Promise<void>;
   };
+  Input: {
+    dispatchMouseEvent(params: {
+      type: 'mousePressed' | 'mouseReleased' | 'mouseMoved' | 'mouseWheel';
+      x: number;
+      y: number;
+      button?: 'left' | 'right' | 'middle' | 'none';
+      clickCount?: number;
+    }): Promise<void>;
+    dispatchKeyEvent(params: {
+      type: 'keyDown' | 'keyUp' | 'char';
+      text?: string;
+      key?: string;
+      code?: string;
+      modifiers?: number;
+    }): Promise<void>;
+  };
   close(): Promise<void>;
 }
 
@@ -85,9 +104,37 @@ export class CDPAdapter implements BrowserAdapter {
   private loadCallbacks: Array<() => void> = [];
   private errorCallbacks: Array<(error: Error) => void> = [];
 
+  private static readonly MAX_CONSOLE_LOGS = 500;
+  private static readonly DEFAULT_TIMEOUT = 10000;
+
   constructor(private options: CDPAdapterOptions = {}) {
     this.options.host = options.host ?? 'localhost';
     this.options.port = options.port ?? 9222;
+  }
+
+  /**
+   * Wrap an operation with a timeout
+   */
+  private async withTimeout<T>(
+    operation: Promise<T>,
+    ms: number = CDPAdapter.DEFAULT_TIMEOUT,
+    message: string = 'Operation timed out'
+  ): Promise<T> {
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(message)), ms)
+    );
+    return Promise.race([operation, timeout]);
+  }
+
+  /**
+   * Add a console message with buffer limit enforcement
+   */
+  private addConsoleLog(msg: ConsoleMessage): void {
+    this.consoleLogs.push(msg);
+    if (this.consoleLogs.length > CDPAdapter.MAX_CONSOLE_LOGS) {
+      this.consoleLogs.shift();
+    }
+    this.consoleCallbacks.forEach((cb) => cb(msg));
   }
 
   async connect(target?: string): Promise<void> {
@@ -119,8 +166,7 @@ export class CDPAdapter implements BrowserAdapter {
         source: 'console',
         timestamp: Date.now(),
       };
-      this.consoleLogs.push(msg);
-      this.consoleCallbacks.forEach((cb) => cb(msg));
+      this.addConsoleLog(msg);
     });
 
     // Set up exception capture
@@ -143,8 +189,7 @@ export class CDPAdapter implements BrowserAdapter {
           .map((f) => `  at ${f.functionName} (${f.url}:${f.lineNumber}:${f.columnNumber})`)
           .join('\n'),
       };
-      this.consoleLogs.push(msg);
-      this.consoleCallbacks.forEach((cb) => cb(msg));
+      this.addConsoleLog(msg);
     });
 
     // Set up navigation events
@@ -175,26 +220,31 @@ export class CDPAdapter implements BrowserAdapter {
   async navigate(url: string, options: NavigateOptions = {}): Promise<NavigateResult> {
     if (!this.client) throw new Error('Not connected');
 
+    const timeout = options.timeout ?? 30000;
     const { Page } = this.client;
     const startTime = Date.now();
 
-    await Page.navigate({ url });
+    const navigateImpl = async (): Promise<NavigateResult> => {
+      await Page.navigate({ url });
 
-    if (options.waitFor === 'load') {
-      await Page.loadEventFired();
-    } else if (options.waitFor === 'domcontentloaded') {
-      await Page.domContentEventFired();
-    }
+      if (options.waitFor === 'load') {
+        await Page.loadEventFired();
+      } else if (options.waitFor === 'domcontentloaded') {
+        await Page.domContentEventFired();
+      }
 
-    const { root } = await this.client.DOM.getDocument();
-    const title = root.nodeName === '#document' ? '' : root.nodeName;
+      const { root } = await this.client!.DOM.getDocument();
+      const title = root.nodeName === '#document' ? '' : root.nodeName;
 
-    return {
-      success: true,
-      finalUrl: url,
-      title,
-      loadTime: Date.now() - startTime,
+      return {
+        success: true,
+        finalUrl: url,
+        title,
+        loadTime: Date.now() - startTime,
+      };
     };
+
+    return this.withTimeout(navigateImpl(), timeout, `Navigation to ${url} timed out after ${timeout}ms`);
   }
 
   async reload(): Promise<void> {
@@ -553,5 +603,87 @@ export class CDPAdapter implements BrowserAdapter {
 
   onError(callback: (error: Error) => void): void {
     this.errorCallbacks.push(callback);
+  }
+
+  // Automation methods
+
+  async click(selector: string, options: ClickOptions = {}): Promise<void> {
+    if (!this.client) throw new Error('Not connected');
+
+    const { button = 'left', clickCount = 1, delay } = options;
+
+    // Get element center coordinates
+    const { result } = await this.client.Runtime.evaluate({
+      expression: `(() => {
+        const el = document.querySelector('${selector.replace(/'/g, "\\'")}');
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        return { x: rect.left + rect.width/2, y: rect.top + rect.height/2 };
+      })()`,
+      returnByValue: true,
+    });
+
+    if (!result.value) throw new Error(`Element not found: ${selector}`);
+    const { x, y } = result.value as { x: number; y: number };
+
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+
+    await this.client.Input.dispatchMouseEvent({
+      type: 'mousePressed',
+      x,
+      y,
+      button,
+      clickCount,
+    });
+    await this.client.Input.dispatchMouseEvent({
+      type: 'mouseReleased',
+      x,
+      y,
+      button,
+      clickCount,
+    });
+  }
+
+  async type(selector: string, text: string, options: TypeOptions = {}): Promise<void> {
+    if (!this.client) throw new Error('Not connected');
+
+    const { clearFirst = false, delay = 0 } = options;
+
+    // Focus element
+    await this.client.Runtime.evaluate({
+      expression: `document.querySelector('${selector.replace(/'/g, "\\'")}')?.focus()`,
+    });
+
+    // Clear if requested
+    if (clearFirst) {
+      await this.client.Runtime.evaluate({
+        expression: `document.querySelector('${selector.replace(/'/g, "\\'")}').value = ''`,
+      });
+    }
+
+    // Type each character
+    for (const char of text) {
+      await this.client.Input.dispatchKeyEvent({ type: 'char', text: char });
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+
+  async waitFor(selector: string, options: WaitForOptions = {}): Promise<ElementInfo> {
+    const { timeout = 5000, visible = true } = options;
+    const start = Date.now();
+
+    while (Date.now() - start < timeout) {
+      try {
+        const element = await this.inspectElement(selector);
+        if (!visible || element.computedStyles.display !== 'none') {
+          return element;
+        }
+      } catch {
+        // Element not found yet, continue waiting
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    throw new Error(`Element not found within ${timeout}ms: ${selector}`);
   }
 }

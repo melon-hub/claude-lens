@@ -20,7 +20,6 @@ import { PlaywrightAdapter, getCDPPort } from './playwright-adapter.js';
 import { analyzeProject, ProjectInfo, detectPackageManager, checkDependencyHealth } from './project-manager';
 import { DevServerManager } from './dev-server';
 import { StaticServer } from './static-server';
-import * as pty from 'node-pty';
 
 // Enable remote debugging for Playwright integration
 // Must be set before app is ready

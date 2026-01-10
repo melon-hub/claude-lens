@@ -196,7 +196,7 @@ async function openProject(projectPath: string): Promise<void> {
 
 /**
  * Inject Claude Lens context into a project directory
- * Creates CLAUDE.md in project root with instructions for the embedded Claude instance
+ * Creates .claude/claude-lens.md with instructions (gitignored, won't pollute user's repo)
  */
 async function injectClaudeLensContext(projectPath: string): Promise<void> {
   const claudeDir = path.join(projectPath, '.claude');
@@ -204,7 +204,7 @@ async function injectClaudeLensContext(projectPath: string): Promise<void> {
   // Create .claude directory if it doesn't exist (async for non-blocking I/O)
   await fsPromises.mkdir(claudeDir, { recursive: true });
 
-  // Create CLAUDE.md in project root (highest precedence for project instructions)
+  // Create claude-lens.md in .claude directory (gitignored by default)
   const claudeMdInstructions = `# Claude Lens Desktop Environment
 
 **IMPORTANT: You are running inside Claude Lens Desktop with Playwright-powered browser automation.**
@@ -282,25 +282,9 @@ Use **standard CSS selectors**:
 Source files: \`${projectPath}\`
 `;
 
-  // Write to CLAUDE.md in project root for highest visibility
-  const claudeMdPath = path.join(projectPath, 'CLAUDE.md');
-
-  // Check if CLAUDE.md already exists - if so, append our section
-  let finalContent = claudeMdInstructions;
-  try {
-    const existing = await fsPromises.readFile(claudeMdPath, 'utf-8');
-    // Only append if our section isn't already there
-    if (!existing.includes('Claude Lens Desktop Environment')) {
-      finalContent = existing + '\n\n---\n\n' + claudeMdInstructions;
-    } else {
-      // Already injected, don't modify
-      console.log('Claude Lens context already in CLAUDE.md');
-      finalContent = existing;
-    }
-  } catch {
-    // File doesn't exist, use default content
-  }
-  await fsPromises.writeFile(claudeMdPath, finalContent);
+  // Write to .claude/claude-lens.md (gitignored, won't affect user's repo)
+  const claudeMdPath = path.join(claudeDir, 'claude-lens.md');
+  await fsPromises.writeFile(claudeMdPath, claudeMdInstructions);
   console.log('Injected Claude Lens context into:', claudeMdPath);
 
   // Create .mcp.json to enable MCP tools in Claude Code
@@ -566,15 +550,15 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
     if (browserView) {
       await browserView.webContents.loadURL(url);
 
-      // Connect Playwright to the BrowserView for automation
+      // Inject unified inspect system (Ctrl+hover/click + button toggle)
+      await injectInspectSystem();
+
+      // Connect Playwright to the BrowserView for automation (non-blocking)
+      // Don't await - Playwright connection can take 10+ seconds and isn't required for display
       if (playwrightAdapter) {
-        try {
-          await playwrightAdapter.connect(browserView);
-          console.log('[PlaywrightAdapter] Connected to BrowserView');
-        } catch (err) {
-          console.error('[PlaywrightAdapter] Failed to connect:', err);
-          // Don't fail the whole operation - basic functionality still works
-        }
+        playwrightAdapter.connect(browserView)
+          .then(() => console.log('[PlaywrightAdapter] Connected to BrowserView'))
+          .catch((err) => console.error('[PlaywrightAdapter] Failed to connect:', err));
       }
     }
 
@@ -661,7 +645,7 @@ async function createWindow() {
   // Load the renderer
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
+    // DevTools can be opened manually with Ctrl+Shift+I or View menu
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
@@ -735,16 +719,20 @@ ipcMain.handle('browser:updateBounds', async (_event, width: number, drawerHeigh
   updateBrowserViewBounds(width, drawerHeight);
 });
 
-// Inject hover tracking script into BrowserView for element inspection tooltips
-async function injectHoverTracking() {
+// Inject unified inspect system - supports both Ctrl+hover and button toggle
+// Ctrl+hover/click always works; Inspect button makes it persistent without Ctrl
+async function injectInspectSystem() {
   if (!browserView) return;
 
   await browserView.webContents.executeJavaScript(`
     (function() {
-      // Remove existing hover tracking if any
-      if (window.__claudeLensHoverCleanup) {
-        window.__claudeLensHoverCleanup();
+      // Remove existing tracking if any
+      if (window.__claudeLensCleanup) {
+        window.__claudeLensCleanup();
       }
+
+      // State
+      window.__claudeLensInspectMode = false; // Button toggle state
 
       // Create tooltip element
       let tooltip = document.getElementById('claude-lens-tooltip');
@@ -776,9 +764,76 @@ async function injectHoverTracking() {
         return selector;
       }
 
+      function getFullSelector(element) {
+        function getSelector(el) {
+          if (el.id) return '#' + el.id;
+          let selector = el.tagName.toLowerCase();
+          if (el.className && typeof el.className === 'string') {
+            const classes = el.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'));
+            if (classes.length) selector += '.' + classes.join('.');
+          }
+          const parent = el.parentElement;
+          if (parent) {
+            const siblings = Array.from(parent.children).filter(c => c.tagName === el.tagName);
+            if (siblings.length > 1) {
+              const index = siblings.indexOf(el) + 1;
+              selector += ':nth-child(' + index + ')';
+            }
+          }
+          return selector;
+        }
+        const parts = [];
+        let current = element;
+        while (current && current !== document.body) {
+          parts.unshift(getSelector(current));
+          if (current.id) break;
+          current = current.parentElement;
+        }
+        return parts.join(' > ');
+      }
+
       let currentElement = null;
+      let ctrlPressed = false;
+
+      // Expose for blur handler to reset
+      window.__claudeLensResetCtrl = true;
+      Object.defineProperty(window, '__claudeLensCtrlPressed', {
+        get: () => ctrlPressed,
+        set: (v) => { ctrlPressed = v; },
+        configurable: true
+      });
+
+      // Track Ctrl key state
+      function handleKeyDown(e) {
+        if (e.key === 'Control' && !ctrlPressed) {
+          ctrlPressed = true;
+          document.body.style.cursor = 'crosshair';
+        }
+      }
+
+      function handleKeyUp(e) {
+        if (e.key === 'Control') {
+          ctrlPressed = false;
+          if (!window.__claudeLensInspectMode) {
+            document.body.style.cursor = '';
+            tooltip.style.display = 'none';
+            highlight.style.display = 'none';
+          }
+        }
+      }
+
+      // Should we show inspect UI?
+      function isInspectActive() {
+        return ctrlPressed || window.__claudeLensInspectMode;
+      }
 
       function handleMouseMove(e) {
+        if (!isInspectActive()) {
+          tooltip.style.display = 'none';
+          highlight.style.display = 'none';
+          return;
+        }
+
         const el = document.elementFromPoint(e.clientX, e.clientY);
         if (!el || el === tooltip || el === highlight || el.id?.startsWith('claude-lens')) {
           return;
@@ -786,25 +841,23 @@ async function injectHoverTracking() {
 
         if (el !== currentElement) {
           currentElement = el;
+          window.__claudeLensLastElement = el;
 
           // Update tooltip
           const selectorText = getSelectorDisplay(el);
           tooltip.textContent = '<' + selectorText + '>';
           tooltip.style.display = 'block';
 
-          // Position tooltip near cursor but not overlapping
+          // Position tooltip near cursor
           const tooltipRect = tooltip.getBoundingClientRect();
           let left = e.clientX + 15;
           let top = e.clientY + 15;
-
-          // Keep tooltip in viewport
           if (left + tooltipRect.width > window.innerWidth) {
             left = e.clientX - tooltipRect.width - 10;
           }
           if (top + tooltipRect.height > window.innerHeight) {
             top = e.clientY - tooltipRect.height - 10;
           }
-
           tooltip.style.left = left + 'px';
           tooltip.style.top = top + 'px';
 
@@ -824,15 +877,82 @@ async function injectHoverTracking() {
         currentElement = null;
       }
 
+      function handleClick(e) {
+        // Only capture if Ctrl is held OR inspect mode is on
+        if (!isInspectActive()) return;
+
+        const el = e.target;
+        if (el.id?.startsWith('claude-lens')) return;
+
+        // In inspect mode (button), block the click; with Ctrl, let it through
+        if (window.__claudeLensInspectMode) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        // With Ctrl only, we still capture but DON'T block - allows dropdowns to open
+
+        // Get element info
+        const attributes = {};
+        for (const attr of el.attributes) {
+          if (attr.name !== 'class' && attr.name !== 'id') {
+            attributes[attr.name] = attr.value;
+          }
+        }
+
+        const computed = window.getComputedStyle(el);
+        const styles = {
+          color: computed.color,
+          backgroundColor: computed.backgroundColor,
+          fontSize: computed.fontSize,
+          fontFamily: computed.fontFamily,
+          display: computed.display,
+          position: computed.position,
+        };
+
+        const rect = el.getBoundingClientRect();
+
+        const elementInfo = {
+          tagName: el.tagName.toLowerCase(),
+          id: el.id || undefined,
+          classes: el.className && typeof el.className === 'string'
+            ? el.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'))
+            : [],
+          selector: getFullSelector(el),
+          text: el.textContent?.slice(0, 100) || '',
+          attributes: attributes,
+          styles: styles,
+          position: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+          interactionResult: 'Element captured',
+        };
+
+        // Show capture highlight (orange)
+        const captureHighlight = document.createElement('div');
+        captureHighlight.className = 'claude-lens-capture-highlight';
+        captureHighlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #f59e0b;background:rgba(245,158,11,0.15);pointer-events:none;z-index:999999;transition:opacity 0.5s;';
+        document.body.appendChild(captureHighlight);
+        setTimeout(() => { captureHighlight.style.opacity = '0'; }, 1500);
+        setTimeout(() => { captureHighlight.remove(); }, 2000);
+
+        // Send to Electron
+        console.log('CLAUDE_LENS_ELEMENT:' + JSON.stringify(elementInfo));
+      }
+
+      document.addEventListener('keydown', handleKeyDown, true);
+      document.addEventListener('keyup', handleKeyUp, true);
       document.addEventListener('mousemove', handleMouseMove, true);
       document.addEventListener('mouseleave', handleMouseLeave);
+      document.addEventListener('click', handleClick, true);
 
       // Cleanup function
-      window.__claudeLensHoverCleanup = function() {
+      window.__claudeLensCleanup = function() {
+        document.removeEventListener('keydown', handleKeyDown, true);
+        document.removeEventListener('keyup', handleKeyUp, true);
         document.removeEventListener('mousemove', handleMouseMove, true);
         document.removeEventListener('mouseleave', handleMouseLeave);
+        document.removeEventListener('click', handleClick, true);
         tooltip?.remove();
         highlight?.remove();
+        document.body.style.cursor = '';
       };
     })()
   `);
@@ -878,8 +998,10 @@ ipcMain.handle('pty:resize', async (_event, cols: number, rows: number) => {
 /**
  * Inject Ctrl+Click element capture listener into the browser.
  * This allows users to quickly capture elements without toggling Inspect Mode.
+ * @deprecated Superseded by injectInspectSystem - kept for reference
  */
-async function injectCtrlClickCapture() {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function _injectCtrlClickCapture() {
   if (!browserView) return;
 
   try {
@@ -1011,8 +1133,8 @@ ipcMain.handle('browser:navigate', async (_event, url: string) => {
     // Navigate to URL
     await browserView.webContents.loadURL(url);
 
-    // Inject Ctrl+Click capture support
-    await injectCtrlClickCapture();
+    // Inject unified inspect system (Ctrl+hover/click + button toggle)
+    await injectInspectSystem();
 
     // Inject Freeze (F key) keyboard shortcut
     await injectFreezeKeyboardShortcut();
@@ -1245,161 +1367,18 @@ ipcMain.handle('browser:getBounds', () => {
   return browserView.getBounds();
 });
 
-// Enable inspect mode - inject click listener and hover tracking into BrowserView
-// Phase 2: Stays in inspect mode until explicitly disabled, captures interaction sequence
+// Enable inspect mode - toggles persistent inspect (without needing Ctrl)
 ipcMain.handle('browser:enableInspect', async () => {
   if (!browserView) return { success: false };
 
   try {
-    // First inject hover tracking
-    await injectHoverTracking();
+    // Ensure inspect system is injected
+    await injectInspectSystem();
 
-    // Then inject click handler - stays active for multiple clicks (sequence capture)
+    // Enable persistent inspect mode
     await browserView.webContents.executeJavaScript(`
-      (function() {
-        // Remove existing listener if any
-        if (window.__claudeLensInspectHandler) {
-          document.removeEventListener('click', window.__claudeLensInspectHandler, true);
-        }
-
-        window.__claudeLensInspectHandler = function(e) {
-          // Block ALL event handlers to prevent dropdowns from closing
-          e.preventDefault();
-          e.stopPropagation();
-          e.stopImmediatePropagation();
-
-          const el = e.target;
-
-          // Build selector
-          function getSelector(element) {
-            if (element.id) return '#' + element.id;
-            let selector = element.tagName.toLowerCase();
-            if (element.className && typeof element.className === 'string') {
-              const classes = element.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'));
-              if (classes.length) selector += '.' + classes.join('.');
-            }
-            const parent = element.parentElement;
-            if (parent) {
-              const siblings = Array.from(parent.children).filter(c => c.tagName === element.tagName);
-              if (siblings.length > 1) {
-                const index = siblings.indexOf(element) + 1;
-                selector += ':nth-child(' + index + ')';
-              }
-            }
-            return selector;
-          }
-
-          function getFullSelector(element) {
-            const parts = [];
-            let current = element;
-            while (current && current !== document.body) {
-              parts.unshift(getSelector(current));
-              if (current.id) break;
-              current = current.parentElement;
-            }
-            return parts.join(' > ');
-          }
-
-          // Detect interaction type for result message
-          function detectInteractionResult(element) {
-            const role = element.getAttribute('role');
-            const tagName = element.tagName.toLowerCase();
-            const ariaExpanded = element.getAttribute('aria-expanded');
-            const ariaHaspopup = element.getAttribute('aria-haspopup');
-
-            // Check for menu items
-            if (role === 'menuitem' || role === 'option' || element.closest('[role="menu"]') || element.closest('[role="listbox"]')) {
-              return 'Menu item selected (action blocked)';
-            }
-
-            // Check for dropdown triggers
-            if (ariaHaspopup || ariaExpanded || element.hasAttribute('data-toggle') ||
-                element.classList.contains('dropdown-toggle') || element.closest('.dropdown-toggle')) {
-              return 'Dropdown trigger clicked (action blocked)';
-            }
-
-            // Check for buttons/links
-            if (tagName === 'button' || tagName === 'a' || role === 'button' || role === 'link') {
-              return 'Button/link clicked (action blocked)';
-            }
-
-            // Check for form elements
-            if (tagName === 'input' || tagName === 'select' || tagName === 'textarea') {
-              return 'Form element selected';
-            }
-
-            // Check for modal/dialog close buttons
-            if (element.closest('[role="dialog"]') || element.closest('.modal')) {
-              return 'Modal element clicked (action blocked)';
-            }
-
-            return 'Element captured';
-          }
-
-          // Get all attributes
-          const attributes = {};
-          for (const attr of el.attributes) {
-            if (attr.name !== 'class' && attr.name !== 'id') {
-              attributes[attr.name] = attr.value;
-            }
-          }
-
-          // Get computed styles (key ones)
-          const computed = window.getComputedStyle(el);
-          const styles = {
-            color: computed.color,
-            backgroundColor: computed.backgroundColor,
-            fontSize: computed.fontSize,
-            fontFamily: computed.fontFamily,
-            display: computed.display,
-            position: computed.position,
-          };
-
-          // Get position and size
-          const rect = el.getBoundingClientRect();
-          const position = {
-            x: rect.left,
-            y: rect.top,
-            width: rect.width,
-            height: rect.height,
-          };
-
-          // Detect interaction result
-          const interactionResult = detectInteractionResult(el);
-
-          const elementInfo = {
-            tagName: el.tagName.toLowerCase(),
-            id: el.id || undefined,
-            classes: el.className && typeof el.className === 'string'
-              ? el.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'))
-              : [],
-            selector: getFullSelector(el),
-            text: el.textContent?.slice(0, 100) || '',
-            attributes: attributes,
-            styles: styles,
-            position: position,
-            interactionResult: interactionResult,
-          };
-
-          // Highlight - different color for sequence mode, auto-fade after 2s
-          document.querySelectorAll('.claude-lens-highlight').forEach(h => h.remove());
-          const highlight = document.createElement('div');
-          highlight.className = 'claude-lens-highlight';
-          highlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #f59e0b;background:rgba(245,158,11,0.1);pointer-events:none;z-index:999999;transition:opacity 0.3s;';
-          document.body.appendChild(highlight);
-          // Auto-fade after 2 seconds so old highlights don't stack
-          setTimeout(() => { highlight.style.opacity = '0.3'; }, 2000);
-
-          // Send back to Electron via console (we'll catch this)
-          console.log('CLAUDE_LENS_ELEMENT:' + JSON.stringify(elementInfo));
-
-          // NOTE: DON'T remove listener - stay in inspect mode for sequence capture
-          // User must explicitly click "Inspect" again to disable
-        };
-
-        document.addEventListener('click', window.__claudeLensInspectHandler, true);
-        document.body.style.cursor = 'crosshair';
-      })()
+      window.__claudeLensInspectMode = true;
+      document.body.style.cursor = 'crosshair';
     `);
 
     return { success: true };
@@ -1408,22 +1387,19 @@ ipcMain.handle('browser:enableInspect', async () => {
   }
 });
 
+// Disable inspect mode - back to Ctrl-only
 ipcMain.handle('browser:disableInspect', async () => {
   if (!browserView) return;
 
   try {
     await browserView.webContents.executeJavaScript(`
-      (function() {
-        if (window.__claudeLensInspectHandler) {
-          document.removeEventListener('click', window.__claudeLensInspectHandler, true);
-          window.__claudeLensInspectHandler = null;
-        }
-        // Clean up hover tracking
-        if (window.__claudeLensHoverCleanup) {
-          window.__claudeLensHoverCleanup();
-        }
-        document.body.style.cursor = '';
-      })()
+      window.__claudeLensInspectMode = false;
+      document.body.style.cursor = '';
+      // Hide tooltip/highlight
+      const tooltip = document.getElementById('claude-lens-tooltip');
+      const highlight = document.getElementById('claude-lens-hover-highlight');
+      if (tooltip) tooltip.style.display = 'none';
+      if (highlight) highlight.style.display = 'none';
     `);
   } catch {
     // Ignore errors
@@ -1597,6 +1573,34 @@ ipcMain.handle('browser:unfreezeHover', async () => {
 // Set up BrowserView console message forwarding
 function setupBrowserViewMessaging() {
   if (!browserView || !mainWindow) return;
+
+  // Re-inject inspect system when page loads/reloads (hot reload loses injected scripts)
+  browserView.webContents.on('did-finish-load', async () => {
+    await injectInspectSystem();
+    console.log('[BrowserView] Re-injected inspect system after page load');
+  });
+
+  // Reset Ctrl state when BrowserView loses focus (prevents stuck Ctrl)
+  browserView.webContents.on('blur', async () => {
+    if (!browserView) return;
+    try {
+      await browserView.webContents.executeJavaScript(`
+        if (window.__claudeLensResetCtrl) {
+          // Reset Ctrl state when BrowserView loses focus
+          window.__claudeLensCtrlPressed = false;
+          if (!window.__claudeLensInspectMode) {
+            document.body.style.cursor = '';
+            const tooltip = document.getElementById('claude-lens-tooltip');
+            const highlight = document.getElementById('claude-lens-hover-highlight');
+            if (tooltip) tooltip.style.display = 'none';
+            if (highlight) highlight.style.display = 'none';
+          }
+        }
+      `);
+    } catch {
+      // Ignore - page might not have script loaded
+    }
+  });
 
   browserView.webContents.on('console-message', (_event, level, message) => {
     // Check for freeze toggle (F key pressed in BrowserView)

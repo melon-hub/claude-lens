@@ -26,26 +26,23 @@ async function waitForFonts(fontFamily: string, timeoutMs = 3000): Promise<void>
 
   // Extract all font names from the stack
   const fontNames = fontFamily.split(',').map(f => f.trim().replace(/['"]/g, '')).filter(f => f && f !== 'monospace');
-  console.log(`Waiting for fonts: ${fontNames.join(', ')}`);
 
-  // Request all fonts to load
+  // Request all fonts to load (silently)
   for (const font of fontNames) {
     try {
       await document.fonts.load(`13px "${font}"`);
-      console.log(`Font load requested: ${font}`);
-    } catch (e) {
-      console.warn(`Font load request failed for ${font}:`, e);
+    } catch {
+      // Font load failed, will use fallback
     }
   }
 
   // Wait for all fonts to be ready
   await document.fonts.ready;
-  console.log('document.fonts.ready resolved');
 
-  // Check each font
+  // Check each font, only warn if missing
+  const missingFonts: string[] = [];
   for (const font of fontNames) {
     let fontAvailable = document.fonts.check(`13px "${font}"`);
-    console.log(`Font check (${font}):`, fontAvailable);
 
     // Poll if not yet available
     while (!fontAvailable && (Date.now() - startTime) < timeoutMs) {
@@ -54,10 +51,12 @@ async function waitForFonts(fontFamily: string, timeoutMs = 3000): Promise<void>
     }
 
     if (!fontAvailable) {
-      console.warn(`Font "${font}" not available after timeout, proceeding anyway`);
-    } else {
-      console.log(`Font "${font}" is ready`);
+      missingFonts.push(font);
     }
+  }
+
+  if (missingFonts.length > 0) {
+    console.warn(`Fonts not available: ${missingFonts.join(', ')}`);
   }
 
   // Additional delay for font rendering to settle
@@ -65,68 +64,21 @@ async function waitForFonts(fontFamily: string, timeoutMs = 3000): Promise<void>
 }
 
 /**
- * Font diagnostics for terminal icon rendering
- *
- * Tests critical Unicode codepoints used by Claude Code CLI:
- * - U+23F5 (⏵) - Checkbox/play button icons
- * - U+E0A0-E0B3 - Powerline/git icons
- * - U+F000+ - Nerd Font devicons
- *
- * Logs warnings if fonts are missing or codepoints unsupported.
+ * Font diagnostics - only logs warnings if something is wrong
  */
 function runFontDiagnostics(): void {
   const criticalFonts = [
-    { name: 'JetBrains Mono NF Bundled', purpose: 'Main terminal text + Nerd Font icons' },
-    { name: 'Noto Sans Symbols 2', purpose: 'Unicode symbols (U+23F5 checkboxes)' },
+    'JetBrains Mono NF Bundled',
+    'Symbols Nerd Font',
+    'Noto Sans Symbols 2',
   ];
 
-  // Critical codepoints Claude Code uses
-  const criticalCodepoints = [
-    { char: '\u23F5', name: 'BLACK MEDIUM RIGHT-POINTING TRIANGLE', usage: 'checkboxes' },
-    { char: '\uF00C', name: 'Nerd Font checkmark', usage: 'success indicators' },
-    { char: '\uE0A0', name: 'Powerline git branch', usage: 'git status' },
-    { char: '\uE0B0', name: 'Powerline arrow right', usage: 'prompt separators' },
-  ];
+  // Check font availability - only warn if missing
+  const missingFonts = criticalFonts.filter(font => !document.fonts.check(`13px "${font}"`));
 
-  console.group('🔤 Font Diagnostics');
-
-  // Check font availability
-  let allFontsLoaded = true;
-  for (const font of criticalFonts) {
-    const loaded = document.fonts.check(`13px "${font.name}"`);
-    if (loaded) {
-      console.log(`✓ ${font.name} - ${font.purpose}`);
-    } else {
-      console.warn(`✗ ${font.name} NOT LOADED - ${font.purpose}`);
-      allFontsLoaded = false;
-    }
+  if (missingFonts.length > 0) {
+    console.warn('Missing fonts:', missingFonts.join(', '));
   }
-
-  // Test codepoint rendering via canvas
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  if (ctx) {
-    // Use the full font stack
-    ctx.font = "13px 'JetBrains Mono NF Bundled', 'Symbols Nerd Font', 'Noto Sans Symbols 2', monospace";
-
-    for (const cp of criticalCodepoints) {
-      const width = ctx.measureText(cp.char).width;
-      const hex = cp.char.codePointAt(0)?.toString(16).toUpperCase().padStart(4, '0');
-      if (width > 0) {
-        console.log(`✓ U+${hex} (${cp.name}) - ${width.toFixed(1)}px`);
-      } else {
-        console.warn(`✗ U+${hex} (${cp.name}) - zero width, may not render`);
-      }
-    }
-  }
-
-  if (allFontsLoaded) {
-    console.log('All critical fonts loaded successfully');
-  } else {
-    console.warn('Some fonts missing - icons may not render correctly');
-  }
-
-  console.groupEnd();
 }
 
 // Elements - Header
@@ -141,6 +93,7 @@ const placeholder = document.getElementById('placeholder') as HTMLDivElement;
 const terminalEl = document.getElementById('terminal') as HTMLDivElement;
 const startClaudeBtn = document.getElementById('startClaudeBtn') as HTMLButtonElement;
 const inspectBtn = document.getElementById('inspectBtn') as HTMLButtonElement;
+const browserHelpText = document.getElementById('browserHelpText') as HTMLSpanElement;
 
 // Elements - Context Panel
 const contextEmpty = document.getElementById('contextEmpty') as HTMLDivElement;
@@ -366,6 +319,7 @@ function showProjectModal(project: ProjectInfo) {
         browserLoaded = true;
         placeholder.classList.add('hidden');
         setStatus('Connected', true);
+        browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
       } else {
         alert(`Failed to start dev server: ${result.error}`);
       }
@@ -386,6 +340,7 @@ function showProjectModal(project: ProjectInfo) {
       browserLoaded = true;
       placeholder.classList.add('hidden');
       setStatus('Connected', true);
+      browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
     } else {
       alert(`Failed to start server: ${result.error}`);
     }
@@ -418,9 +373,8 @@ async function init() {
 
   // Now open terminal - font measurements will use the loaded font
   terminal.open(terminalEl);
-  console.log('Terminal opened with font:', fontFamily);
 
-  // Run font diagnostics to verify icons will render correctly
+  // Run font diagnostics (only warns if issues)
   runFontDiagnostics();
 
   // Load search addon for Ctrl+F functionality
@@ -428,18 +382,118 @@ async function init() {
   terminal.loadAddon(searchAddon);
 
   fitAddon.fit();
-  console.log('Terminal ready');
 
   // Force a refresh after a delay for any rendering glitches
   setTimeout(() => {
     terminal.refresh(0, terminal.rows - 1);
-    console.log('Terminal refreshed');
-
   }, 500);
+
+
+  // MCP tool pattern detection with semantic icons (Nerd Font)
+  // Format: [pattern to match after indicator, replacement icon, description]
+  // Some patterns also transform the text for better UX
+  const mcpToolIcons: Array<{ pattern: RegExp; icon: string; name: string; transform?: string }> = [
+    // Screenshot/Image tools
+    { pattern: /Screenshot captured/i, icon: '\uF030', name: 'camera' },        //
+    { pattern: /\[Image\]/i, icon: '\uF03E', name: 'image', transform: 'Attached to context' },  // Transform [Image] to clearer text
+    { pattern: /Taking screenshot/i, icon: '\uF030', name: 'camera' },
+
+    // File operations
+    { pattern: /Read \d+ lines?/i, icon: '\uF15C', name: 'file-text' },         //
+    { pattern: /Error reading/i, icon: '\uF071', name: 'warning' },             //
+
+    // MCP/Playwright errors - make them stand out
+    { pattern: /Error:.*Timeout/i, icon: '\uF017', name: 'clock' },             // ⏱ Timeout
+    { pattern: /Error:.*not a valid selector/i, icon: '\uF06A', name: 'exclamation-circle' }, //
+    { pattern: /Error:.*Failed to execute/i, icon: '\uF06A', name: 'exclamation-circle' },
+    { pattern: /DOMException/i, icon: '\uF06A', name: 'exclamation-circle' },
+    { pattern: /waiting for locator/i, icon: '\uF017', name: 'clock' },         // Timeout waiting
+    { pattern: /Write.*success/i, icon: '\uF0C7', name: 'save' },               //
+    { pattern: /Created file/i, icon: '\uF15B', name: 'file-new' },             //
+    { pattern: /Edited file/i, icon: '\uF044', name: 'edit' },                  //
+
+    // Search operations
+    { pattern: /Found \d+ (?:lines?|matches?|files?)/i, icon: '\uF002', name: 'search' },  //
+    { pattern: /No matches/i, icon: '\uF00D', name: 'times' },                  //
+    { pattern: /Searching/i, icon: '\uF002', name: 'search' },
+
+    // Browser/Navigation - MCP actions
+    { pattern: /Navigate/i, icon: '\uF0AC', name: 'globe' },                    //
+    { pattern: /Page loaded/i, icon: '\uF0AC', name: 'globe' },
+    { pattern: /Clicked button/i, icon: '\uF25A', name: 'hand-pointer' },       // Successful click
+    { pattern: /Clicked/i, icon: '\uF245', name: 'pointer' },                   //
+    { pattern: /Click/i, icon: '\uF245', name: 'pointer' },
+    { pattern: /Type|Fill/i, icon: '\uF11C', name: 'keyboard' },                //
+    { pattern: /Hover/i, icon: '\uF245', name: 'pointer' },
+
+    // Execution/Commands
+    { pattern: /Command.*exit/i, icon: '\uF120', name: 'terminal' },            //
+    { pattern: /Running/i, icon: '\uF04B', name: 'play' },                      //
+    { pattern: /Executed/i, icon: '\uF0E7', name: 'bolt' },                     //
+
+    // Git operations
+    { pattern: /Commit/i, icon: '\uF1D3', name: 'git' },                        //
+    { pattern: /Branch/i, icon: '\uE0A0', name: 'git-branch' },                 //
+    { pattern: /Push|Pull/i, icon: '\uF0C2', name: 'cloud' },                   //
+
+    // API/Network
+    { pattern: /Fetching|Request/i, icon: '\uF0C1', name: 'link' },             //
+    { pattern: /Response/i, icon: '\uF063', name: 'arrow-down' },               //
+  ];
+
+  // Basic character substitution for missing glyphs (fallback)
+  const charSubstitutions: Record<string, string> = {
+    '\u23F5': '\u25B6', // ⏵ → ▶ (play button)
+    '\u23F1': '\u25CF', // ⏱ → ● (stopwatch → bullet)
+    '\u23BF': '\u25B8', // ⎿ → ▸ (indicator)
+    '\u23F4': '\u25C0', // ⏴ → ◀ (reverse)
+    '\u23F9': '\u25A0', // ⏹ → ■ (stop)
+    '\u23FA': '\u25CF', // ⏺ → ● (record)
+  };
+
+  // The indicator characters Claude Code uses for MCP results
+  const mcpIndicators = ['\u23F5', '\u23F1', '\u23BF'];
+
+  // Smart substitution: detect MCP patterns and use semantic icons
+  const substituteChars = (data: string): string => {
+    let result = data;
+
+    // For each MCP indicator character, check if it's followed by a known pattern
+    for (const indicator of mcpIndicators) {
+      if (!result.includes(indicator)) continue;
+
+      // Find all occurrences of the indicator
+      const regex = new RegExp(indicator + '\\s*(.{0,50})', 'g');
+      result = result.replace(regex, (match, afterIndicator) => {
+        // Check each MCP tool pattern
+        for (const tool of mcpToolIcons) {
+          if (tool.pattern.test(afterIndicator)) {
+            // Replace indicator with semantic icon, optionally transform text
+            const displayText = tool.transform || afterIndicator;
+            return tool.icon + ' ' + displayText;
+          }
+        }
+        // Fallback: use basic substitution
+        const fallback = charSubstitutions[indicator] || indicator;
+        return fallback + ' ' + afterIndicator;
+      });
+    }
+
+    // Also do basic substitution for any remaining characters
+    for (const [from, to] of Object.entries(charSubstitutions)) {
+      if (result.includes(from)) {
+        result = result.replaceAll(from, to);
+      }
+    }
+
+    return result;
+  };
 
   // PTY data handler
   window.claudeLens.pty.onData((data) => {
-    terminal.write(data);
+    // Substitute missing characters and enhance MCP output
+    const processed = substituteChars(data);
+    terminal.write(processed);
   });
 
   window.claudeLens.pty.onExit((code) => {
@@ -513,11 +567,11 @@ async function init() {
 
       // Also add to selected elements
       addSelectedElement(elementData);
-      setStatus(`Captured ${inspectSequence.length} interaction(s)`, true);
+      browserHelpText.textContent = `Captured ${inspectSequence.length} • Click more or stop inspecting`;
     } else {
       // Normal single-element selection (Ctrl+Click)
       addSelectedElement(elementData);
-      setStatus('Element selected', true);
+      // Don't change browser help text for single element selection
     }
   });
 
@@ -1390,6 +1444,7 @@ goBtn.addEventListener('click', async () => {
   browserLoaded = true;
   placeholder.classList.add('hidden');
   setStatus('Connected', true);
+  browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
 
   // Update browser view bounds to match panel width
   updateBrowserBounds();
@@ -1436,16 +1491,16 @@ inspectBtn.addEventListener('click', async () => {
     await window.claudeLens.browser.enableInspect();
     inspectBtn.textContent = 'Stop Inspecting';
     inspectBtn.classList.add('btn-primary');
-    setStatus('Click elements to capture sequence (click button again to stop)', false);
+    browserHelpText.textContent = 'Hover to highlight • Click to capture';
   } else {
     await window.claudeLens.browser.disableInspect();
     inspectBtn.textContent = 'Inspect';
     inspectBtn.classList.remove('btn-primary');
     // Don't clear sequence - user may want to send it
     if (inspectSequence.length > 0) {
-      setStatus(`Captured ${inspectSequence.length} interaction(s) - click "Send Sequence" to send`, true);
+      browserHelpText.textContent = `Captured ${inspectSequence.length} • Click "Send Sequence" to send`;
     } else {
-      setStatus('Connected', true);
+      browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
     }
   }
 });
@@ -1462,12 +1517,12 @@ async function toggleFreezeHover() {
     await window.claudeLens.browser.freezeHover();
     freezeHoverBtn.textContent = 'Unfreeze (F)';
     freezeHoverBtn.classList.add('active');
-    setStatus('Hover frozen! Press F again to unfreeze', true);
+    browserHelpText.textContent = 'Hover frozen • Press F to unfreeze';
   } else {
     await window.claudeLens.browser.unfreezeHover();
     freezeHoverBtn.textContent = 'Freeze (F)';
     freezeHoverBtn.classList.remove('active');
-    setStatus('Hover states unfrozen', true);
+    browserHelpText.textContent = '';
   }
 }
 
@@ -1528,39 +1583,20 @@ sendSequenceBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Get current page URL
-  const pageURL = await window.claudeLens.browser.getURL();
-
-  // Format sequence for Claude
-  let sequenceContext = `## Captured Interaction Sequence (${inspectSequence.length} steps)\n\n`;
-  sequenceContext += `**Page:** ${pageURL || 'Unknown'}\n\n`;
+  // Format lean sequence context
+  let sequenceContext = `## Interaction Sequence (${inspectSequence.length} steps)\n\n`;
 
   for (let i = 0; i < inspectSequence.length; i++) {
     const interaction = inspectSequence[i];
     if (!interaction) continue;
     const el = interaction.element;
 
-    sequenceContext += `### Step ${i + 1}: ${el.description || el.tagName}\n`;
-    sequenceContext += `- **Action:** ${interaction.action}\n`;
-    sequenceContext += `- **Selector:** \`${el.selector}\`\n`;
-    sequenceContext += `- **Result:** ${interaction.result}\n`;
-    if (el.text) {
-      sequenceContext += `- **Text:** "${el.text.slice(0, 50)}${el.text.length > 50 ? '...' : ''}"\n`;
-    }
+    sequenceContext += `${i + 1}. \`${el.selector}\``;
+    if (el.text) sequenceContext += ` "${el.text.slice(0, 30)}${el.text.length > 30 ? '...' : ''}"`;
     sequenceContext += '\n';
   }
 
-  const toolHints = `---
-**Claude Lens Context**
-- This is an interaction sequence captured during Inspect mode
-- Actions were blocked to preserve UI state (dropdowns stayed open, etc.)
-- Use \`claude_lens/screenshot\` to see the current state
-- Use \`claude_lens/click\` to replay interactions (without blocking)
----
-
-`;
-
-  const fullPrompt = `${toolHints}Here is the captured interaction sequence:\n\n${sequenceContext}`;
+  const fullPrompt = `Here is the captured interaction sequence:\n\n${sequenceContext}`;
   const result = await window.claudeLens.sendToClaude(fullPrompt, '');
 
   if (result.success) {
@@ -1591,27 +1627,14 @@ sendToastsBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Get current page URL
-  const pageURL = await window.claudeLens.browser.getURL();
-
-  // Format toasts for Claude
-  let toastContext = `## Captured Toast Notifications (${capturedToasts.length} messages)\n\n`;
-  toastContext += `**Page:** ${pageURL || 'Unknown'}\n\n`;
+  // Format lean toast context
+  let toastContext = `## Toast Notifications (${capturedToasts.length})\n\n`;
 
   for (const toast of capturedToasts) {
-    const time = new Date(toast.timestamp).toLocaleTimeString();
-    toastContext += `- **[${time}]** [${toast.type.toUpperCase()}] ${toast.text}\n`;
+    toastContext += `- [${toast.type.toUpperCase()}] ${toast.text}\n`;
   }
 
-  const toolHints = `---
-**Claude Lens Context**
-- These are toast notifications captured via MutationObserver
-- Toasts may indicate success/error states from user actions
----
-
-`;
-
-  const fullPrompt = `${toolHints}Here are the captured toast notifications:\n\n${toastContext}`;
+  const fullPrompt = `Here are the captured toast notifications:\n\n${toastContext}`;
   const result = await window.claudeLens.sendToClaude(fullPrompt, '');
 
   if (result.success) {
@@ -1635,16 +1658,12 @@ consoleSendBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Get current page URL
-  const pageURL = await window.claudeLens.browser.getURL();
-
-  // Format console messages
+  // Format lean console context
   const consoleLines = consoleBuffer.toArray().map(m => {
-    const time = new Date(m.timestamp).toLocaleTimeString();
-    return `[${time}] [${m.level.toUpperCase()}] ${m.message}`;
+    return `[${m.level.toUpperCase()}] ${m.message}`;
   });
 
-  const context = `**Page:** ${pageURL || 'Unknown'}\n\n**Console Output (${consoleBuffer.length} messages):**\n\`\`\`\n${consoleLines.join('\n')}\n\`\`\``;
+  const context = `## Console (${consoleBuffer.length} messages)\n\`\`\`\n${consoleLines.join('\n')}\n\`\`\``;
 
   const result = await window.claudeLens.sendToClaude(`Here are the browser console messages:\n\n${context}`, '');
 
@@ -1678,59 +1697,101 @@ sendPromptBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Get current page URL
-  const pageURL = await window.claudeLens.browser.getURL();
-
-  // Format element context for all selected elements
+  // Format rich element context with Tailwind translations
   const elementContexts = selectedElements.map(el => {
-    let ctx = `## Selected Element: <${el.tagName}${el.id ? '#' + el.id : ''}>\n\n`;
+    let ctx = `## <${el.tagName}${el.id ? '#' + el.id : ''}>\n`;
     ctx += `**Selector:** \`${el.selector}\`\n`;
-    ctx += `**Tag:** ${el.tagName}${el.id ? '#' + el.id : ''}\n`;
-    ctx += `**Classes:** ${el.classes.join(', ') || 'none'}\n`;
-    if (el.text) ctx += `**Text:** ${el.text.slice(0, 100)}${el.text.length > 100 ? '...' : ''}\n`;
-    if (el.position) {
-      ctx += `**Position:** ${Math.round(el.position.x)}, ${Math.round(el.position.y)}\n`;
-      ctx += `**Size:** ${Math.round(el.position.width)}×${Math.round(el.position.height)}px\n`;
+
+    // Primary edit target (most important for Claude)
+    if (el.framework?.components[0]?.source) {
+      const src = el.framework.components[0].source;
+      ctx += `**Edit:** \`${src.fileName}:${src.lineNumber}\`\n`;
     }
 
-    // Add component info for Claude to know which file to edit
-    if (el.framework && el.framework.components.length > 0) {
-      ctx += `\n**Framework:** ${el.framework.framework}\n`;
-      ctx += `**Component Hierarchy:**\n`;
-      for (const comp of el.framework.components) {
-        ctx += `  - \`<${comp.name} />\``;
-        if (comp.source) {
-          ctx += ` → **${comp.source.fileName}:${comp.source.lineNumber}**`;
+    if (el.text) ctx += `**Text:** "${el.text.slice(0, 50)}${el.text.length > 50 ? '...' : ''}"\n`;
+
+    // CSS classes with Tailwind translations
+    if (el.classes && el.classes.length > 0) {
+      const tw: Record<string, string> = {
+        // Typography
+        'text-xs': '12px', 'text-sm': '14px', 'text-base': '16px', 'text-lg': '18px',
+        'text-xl': '20px', 'text-2xl': '24px', 'text-3xl': '30px', 'text-4xl': '36px',
+        'text-5xl': '48px', 'font-thin': '100', 'font-light': '300', 'font-normal': '400',
+        'font-medium': '500', 'font-semibold': '600', 'font-bold': '700', 'font-extrabold': '800',
+        'italic': 'italic', 'underline': 'underline', 'tracking-tight': '-0.025em',
+        'tracking-wide': '0.025em', 'leading-tight': 'lh:1.25', 'leading-relaxed': 'lh:1.625',
+        // Layout
+        'flex': 'flex', 'grid': 'grid', 'block': 'block', 'inline': 'inline', 'hidden': 'hidden',
+        'flex-row': 'row', 'flex-col': 'column', 'items-center': 'align-center',
+        'items-start': 'align-start', 'items-end': 'align-end', 'justify-center': 'center',
+        'justify-between': 'space-between', 'justify-start': 'start',
+        'gap-1': '4px', 'gap-2': '8px', 'gap-4': '16px', 'gap-6': '24px', 'gap-8': '32px',
+        // Spacing
+        'p-0': '0', 'p-1': '4px', 'p-2': '8px', 'p-4': '16px', 'p-6': '24px', 'p-8': '32px',
+        'm-0': '0', 'm-auto': 'auto', 'm-1': '4px', 'm-2': '8px', 'm-4': '16px',
+        'px-4': 'x:16px', 'py-2': 'y:8px', 'px-6': 'x:24px', 'py-4': 'y:16px',
+        // Sizing
+        'w-full': '100%', 'w-auto': 'auto', 'h-full': '100%', 'h-auto': 'auto',
+        'max-w-md': '448px', 'max-w-lg': '512px', 'max-w-xl': '576px',
+        // Position
+        'relative': 'relative', 'absolute': 'absolute', 'fixed': 'fixed', 'sticky': 'sticky',
+        // Border/radius
+        'rounded': '4px', 'rounded-md': '6px', 'rounded-lg': '8px', 'rounded-xl': '12px',
+        'rounded-full': '9999px', 'border': '1px', 'border-2': '2px',
+        // Effects
+        'shadow': 'shadow-sm', 'shadow-md': 'shadow-md', 'shadow-lg': 'shadow-lg',
+        'opacity-50': '0.5', 'cursor-pointer': 'clickable',
+        // Colors
+        'bg-white': '#fff', 'bg-black': '#000', 'text-white': '#fff', 'text-black': '#000',
+        'text-gray-500': '#6b7280', 'text-gray-700': '#374151', 'text-gray-900': '#111827',
+        'bg-gray-100': '#f3f4f6', 'bg-gray-800': '#1f2937', 'bg-blue-500': '#3b82f6',
+        'bg-red-500': '#ef4444', 'bg-green-500': '#22c55e',
+      };
+
+      // Translate Tailwind classes (max 12 to avoid bloat)
+      const classInfo = el.classes.slice(0, 12).map(c => {
+        if (tw[c]) return `${c}(${tw[c]})`;
+        // Handle responsive/state prefixes
+        const match = c.match(/^(hover:|focus:|dark:|sm:|md:|lg:)(.+)$/);
+        if (match && tw[match[2]]) return `${c}(${tw[match[2]]})`;
+        return c;
+      });
+      ctx += `**Classes:** ${classInfo.join(' ')}\n`;
+    }
+
+    // Key computed styles
+    if (el.styles) {
+      const keyStyles: string[] = [];
+      if (el.styles.color && el.styles.color !== 'rgb(0, 0, 0)') keyStyles.push(`color:${el.styles.color}`);
+      if (el.styles.backgroundColor && el.styles.backgroundColor !== 'rgba(0, 0, 0, 0)') keyStyles.push(`bg:${el.styles.backgroundColor}`);
+      if (el.styles.fontSize) keyStyles.push(`font:${el.styles.fontSize}`);
+      if (keyStyles.length > 0) ctx += `**Computed:** ${keyStyles.join(', ')}\n`;
+    }
+
+    // Key attributes
+    if (el.attributes) {
+      const keyAttrs: string[] = [];
+      for (const attr of ['href', 'src', 'alt', 'type', 'placeholder', 'aria-label', 'data-testid', 'role']) {
+        if (el.attributes[attr]) {
+          const val = el.attributes[attr].slice(0, 40);
+          keyAttrs.push(`${attr}="${val}${el.attributes[attr].length > 40 ? '...' : ''}"`);
         }
-        ctx += '\n';
       }
-      // Emphasize the first component (most specific) for editing
-      const primary = el.framework.components[0];
-      if (primary?.source) {
-        ctx += `\n**Edit this file:** \`${primary.source.fileName}\` at line ${primary.source.lineNumber}\n`;
-      }
+      if (keyAttrs.length > 0) ctx += `**Attrs:** ${keyAttrs.join(', ')}\n`;
+    }
+
+    // Parent context (DOM hierarchy)
+    if (el.parentChain && el.parentChain.length > 0) {
+      const parents = el.parentChain.slice(0, 3).map(p => p.description).join(' → ');
+      ctx += `**In:** ${parents}\n`;
     }
 
     return ctx;
-  }).join('\n---\n\n');
-
-  // Build full context with page info and tool hints
-  const pageContext = pageURL ? `**Page:** ${pageURL}\n\n` : '';
-
-  // Add tool hints so Claude knows to use our MCP tools
-  const toolHints = `---
-**Claude Lens Context**
-- For screenshots, use \`claude_lens/screenshot\` (NOT browser_snapshot/Playwright)
-- For element inspection, use \`claude_lens/inspect_element\`
-- For console logs, use \`claude_lens/get_console\`
-- If you need to edit files but don't know the source path, ASK the user where the project files are located.
----
-
-`;
+  }).join('\n');
 
   // If no prompt, use a default instruction
   const finalPrompt = prompt || 'Here is the element I selected:';
-  const fullPrompt = `${toolHints}${finalPrompt}\n\n${pageContext}${elementContexts}`;
+  const fullPrompt = `${finalPrompt}\n\n${elementContexts}`;
   const result = await window.claudeLens.sendToClaude(fullPrompt, '');
 
   if (result.success) {

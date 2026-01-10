@@ -67,9 +67,9 @@ export class PlaywrightAdapter {
         throw new Error('Could not find matching page for BrowserView. The browser may not have loaded yet.');
       }
 
-      // Set shorter default timeout (5 seconds instead of 30)
-      // This gives faster feedback when selectors don't match
-      this.page.setDefaultTimeout(5000);
+      // Set reasonable default timeout (10 seconds)
+      // Long enough for lazy loading but short enough for useful feedback
+      this.page.setDefaultTimeout(10000);
 
       console.log('[PlaywrightAdapter] Connected successfully to page:', this.page.url());
     } catch (error) {
@@ -334,7 +334,7 @@ export class PlaywrightAdapter {
   }
 
   /**
-   * Click an element
+   * Click an element with improved error handling and retry logic
    */
   async click(
     selector: string,
@@ -344,18 +344,139 @@ export class PlaywrightAdapter {
       delay?: number;
       force?: boolean;
       timeout?: number;
+      retries?: number;
+    }
+  ): Promise<void> {
+    // Validate selector - reject jQuery-style selectors with helpful message
+    if (selector.includes(':contains(')) {
+      throw new Error(
+        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS. ` +
+        `Use text-based locators like 'text=Filter' or data attributes instead.`
+      );
+    }
+
+    const page = await this.ensureConnected();
+    const retries = options?.retries ?? 2; // Retry up to 2 times by default
+    const timeout = options?.timeout ?? 10000;
+
+    // Use shorter timeout per attempt when retrying
+    const timeoutPerAttempt = retries > 0 ? Math.floor(timeout / (retries + 1)) : timeout;
+
+    const clickOptions = {
+      button: options?.button,
+      clickCount: options?.clickCount,
+      delay: options?.delay,
+      force: options?.force,
+      timeout: timeoutPerAttempt,
+    };
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        // Wait for element to be stable before clicking
+        await page.locator(selector).waitFor({ state: 'visible', timeout: timeoutPerAttempt });
+        await page.click(selector, clickOptions);
+        return; // Success
+      } catch (error) {
+        lastError = error as Error;
+
+        // Don't retry invalid selector errors
+        if (lastError.message.includes('is not a valid selector')) {
+          throw new Error(
+            `Invalid selector: "${selector}". ${lastError.message.split(':').pop()?.trim() || 'Check CSS syntax.'}`
+          );
+        }
+
+        // On last attempt, throw enhanced error
+        if (attempt === retries) {
+          if (lastError.message.includes('Timeout')) {
+            throw new Error(
+              `Click timeout: "${selector}" not found after ${retries + 1} attempts (${timeout}ms total). ` +
+              `Element may not exist or is not visible. Try using browser_snapshot to find the correct selector.`
+            );
+          }
+          throw lastError;
+        }
+
+        // Wait briefly before retry (allows animations to complete)
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+
+    throw lastError || new Error('Click failed for unknown reason');
+  }
+
+  /**
+   * Click an element by its visible text content
+   * More reliable than CSS selectors for buttons, links, and menu items
+   */
+  async clickByText(
+    text: string,
+    options?: {
+      exact?: boolean; // Exact match vs substring
+      timeout?: number;
     }
   ): Promise<void> {
     const page = await this.ensureConnected();
-    await page.click(selector, options);
+    const timeout = options?.timeout ?? 10000;
+    const exact = options?.exact ?? false;
+
+    try {
+      const locator = exact
+        ? page.getByText(text, { exact: true })
+        : page.getByText(text);
+
+      await locator.first().waitFor({ state: 'visible', timeout });
+      await locator.first().click({ timeout });
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('Timeout')) {
+        throw new Error(
+          `Click by text timeout: No visible element with text "${text}" found within ${timeout}ms. ` +
+          `Try using browser_snapshot to see available elements.`
+        );
+      }
+      throw error;
+    }
   }
 
   /**
    * Fill an input field (clears first, then types)
    */
   async fill(selector: string, value: string, options?: { timeout?: number }): Promise<void> {
+    // Validate selector
+    if (selector.includes(':contains(')) {
+      throw new Error(
+        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS. ` +
+        `Use standard CSS selectors like '#email' or '[name="email"]'.`
+      );
+    }
+
     const page = await this.ensureConnected();
-    await page.fill(selector, value, options);
+    const fillOptions = {
+      ...options,
+      timeout: options?.timeout ?? 10000,
+    };
+
+    try {
+      await page.fill(selector, value, fillOptions);
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('Timeout')) {
+        throw new Error(
+          `Fill timeout: "${selector}" not found within ${fillOptions.timeout}ms. ` +
+          `Ensure the input element exists and is editable.`
+        );
+      }
+      if (err.message.includes('not an <input>') || err.message.includes('not editable')) {
+        throw new Error(
+          `Fill failed: "${selector}" is not an editable input field. ` +
+          `Use 'type' for contenteditable elements or check the element type.`
+        );
+      }
+      throw error;
+    }
   }
 
   /**
@@ -366,8 +487,30 @@ export class PlaywrightAdapter {
     text: string,
     options?: { delay?: number; timeout?: number }
   ): Promise<void> {
+    // Validate selector
+    if (selector.includes(':contains(')) {
+      throw new Error(
+        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS. ` +
+        `Use standard CSS selectors like '#search' or '[name="query"]'.`
+      );
+    }
+
     const page = await this.ensureConnected();
-    await page.locator(selector).pressSequentially(text, { delay: options?.delay });
+    const timeout = options?.timeout ?? 10000;
+
+    try {
+      const locator = page.locator(selector);
+      await locator.waitFor({ state: 'visible', timeout });
+      await locator.pressSequentially(text, { delay: options?.delay });
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('Timeout')) {
+        throw new Error(
+          `Type timeout: "${selector}" not found or not visible within ${timeout}ms.`
+        );
+      }
+      throw error;
+    }
   }
 
   /**
@@ -386,16 +529,66 @@ export class PlaywrightAdapter {
     values: string | string[],
     options?: { timeout?: number }
   ): Promise<string[]> {
+    // Validate selector
+    if (selector.includes(':contains(')) {
+      throw new Error(
+        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS.`
+      );
+    }
+
     const page = await this.ensureConnected();
-    return page.selectOption(selector, values, options);
+    const selectOptions = {
+      ...options,
+      timeout: options?.timeout ?? 10000,
+    };
+
+    try {
+      return await page.selectOption(selector, values, selectOptions);
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('Timeout')) {
+        throw new Error(
+          `Select timeout: "${selector}" not found within ${selectOptions.timeout}ms.`
+        );
+      }
+      if (err.message.includes('not a <select>')) {
+        throw new Error(
+          `Select failed: "${selector}" is not a <select> element. ` +
+          `For custom dropdowns, use click() to open and then click an option.`
+        );
+      }
+      throw error;
+    }
   }
 
   /**
    * Hover over an element
    */
   async hover(selector: string, options?: { timeout?: number; force?: boolean }): Promise<void> {
+    // Validate selector
+    if (selector.includes(':contains(')) {
+      throw new Error(
+        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS.`
+      );
+    }
+
     const page = await this.ensureConnected();
-    await page.hover(selector, options);
+    const hoverOptions = {
+      ...options,
+      timeout: options?.timeout ?? 10000,
+    };
+
+    try {
+      await page.hover(selector, hoverOptions);
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('Timeout')) {
+        throw new Error(
+          `Hover timeout: "${selector}" not found within ${hoverOptions.timeout}ms.`
+        );
+      }
+      throw error;
+    }
   }
 
   /**
@@ -406,8 +599,31 @@ export class PlaywrightAdapter {
     targetSelector: string,
     options?: { timeout?: number }
   ): Promise<void> {
+    // Validate selectors
+    if (sourceSelector.includes(':contains(') || targetSelector.includes(':contains(')) {
+      throw new Error(
+        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS.`
+      );
+    }
+
     const page = await this.ensureConnected();
-    await page.dragAndDrop(sourceSelector, targetSelector, options);
+    const dragOptions = {
+      ...options,
+      timeout: options?.timeout ?? 10000,
+    };
+
+    try {
+      await page.dragAndDrop(sourceSelector, targetSelector, dragOptions);
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('Timeout')) {
+        throw new Error(
+          `Drag timeout: Source "${sourceSelector}" or target "${targetSelector}" ` +
+          `not found within ${dragOptions.timeout}ms.`
+        );
+      }
+      throw error;
+    }
   }
 
   /**
@@ -443,12 +659,28 @@ export class PlaywrightAdapter {
     selector: string,
     options?: { state?: 'attached' | 'visible' | 'hidden'; timeout?: number }
   ): Promise<void> {
+    // Validate selector
+    if (selector.includes(':contains(')) {
+      throw new Error(
+        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS.`
+      );
+    }
+
     const page = await this.ensureConnected();
-    // Build options object only with defined values to avoid type issues
-    const waitOptions: { state?: 'attached' | 'visible' | 'hidden'; timeout?: number } = {};
-    if (options?.state) waitOptions.state = options.state;
-    if (options?.timeout) waitOptions.timeout = options.timeout;
-    await page.waitForSelector(selector, waitOptions);
+    const timeout = options?.timeout ?? 10000;
+    const state = options?.state ?? 'visible';
+
+    try {
+      await page.waitForSelector(selector, { state, timeout });
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('Timeout')) {
+        throw new Error(
+          `Wait timeout: "${selector}" did not become ${state} within ${timeout}ms.`
+        );
+      }
+      throw error;
+    }
   }
 
   /**

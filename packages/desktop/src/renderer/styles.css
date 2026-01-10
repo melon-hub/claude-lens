@@ -700,6 +700,21 @@ body {
   position: relative;
 }
 
+/* Browser help text (inspect mode instructions) */
+.browser-help-text {
+  flex: 1;
+  font-size: 11px;
+  color: var(--accent);
+  margin: 0 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browser-help-text:empty {
+  display: none;
+}
+
 /* Panel header actions */
 .panel-header-actions {
   display: flex;

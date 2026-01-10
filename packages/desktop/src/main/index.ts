@@ -15,9 +15,10 @@ import { startMCPServer, stopMCPServer, setBrowserView, setConsoleBuffer } from 
 import { BridgeServer } from '@claude-lens/core';
 import { createPlaywrightBridgeHandler } from './playwright-handler.js';
 import { PlaywrightAdapter, getCDPPort } from './playwright-adapter.js';
-import { analyzeProject, ProjectInfo, detectPackageManager, checkDependencyHealth, DependencyHealth } from './project-manager';
+import { analyzeProject, ProjectInfo, detectPackageManager, checkDependencyHealth } from './project-manager';
 import { DevServerManager } from './dev-server';
 import { StaticServer } from './static-server';
+import * as pty from 'node-pty';
 
 // Enable remote debugging for Playwright integration
 // Must be set before app is ready
@@ -317,7 +318,6 @@ Source files: \`${projectPath}\`
  */
 async function runInstallCommand(projectPath: string, command: string): Promise<{ success: boolean; error?: string }> {
   return new Promise((resolve) => {
-    const pty = require('node-pty');
     const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
 
     const installPty = pty.spawn(shell, [], {

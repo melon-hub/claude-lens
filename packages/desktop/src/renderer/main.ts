@@ -11,7 +11,7 @@ import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { SearchAddon } from '@xterm/addon-search';
-import { CircularBuffer } from '@claude-lens/core';
+import { CircularBuffer } from './circular-buffer';
 import 'xterm/css/xterm.css';
 
 /**

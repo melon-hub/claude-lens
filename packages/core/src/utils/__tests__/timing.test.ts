@@ -44,7 +44,7 @@ describe('debounce', () => {
   });
 
   test('passes arguments to function', async () => {
-    const fn = mock((a: number, b: string) => {});
+    const fn = mock((_a: number, _b: string) => {});
     const debounced = debounce(fn, 50);
 
     debounced(42, 'hello');
@@ -54,7 +54,7 @@ describe('debounce', () => {
   });
 
   test('uses latest arguments', async () => {
-    const fn = mock((value: number) => {});
+    const fn = mock((_value: number) => {});
     const debounced = debounce(fn, 50);
 
     debounced(1);
@@ -104,7 +104,7 @@ describe('throttle', () => {
   });
 
   test('passes arguments to function', () => {
-    const fn = mock((a: number, b: string) => {});
+    const fn = mock((_a: number, _b: string) => {});
     const throttled = throttle(fn, 50);
 
     throttled(42, 'hello');
@@ -112,7 +112,7 @@ describe('throttle', () => {
   });
 
   test('trailing call uses first scheduled arguments', async () => {
-    const fn = mock((value: number) => {});
+    const fn = mock((_value: number) => {});
     const throttled = throttle(fn, 50);
 
     throttled(1); // Immediate call with 1
@@ -128,7 +128,6 @@ describe('throttle', () => {
     const fn = mock(() => {});
     const throttled = throttle(fn, 100);
 
-    const start = Date.now();
     throttled();
     await sleep(50);
     throttled();

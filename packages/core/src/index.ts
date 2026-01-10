@@ -17,3 +17,4 @@ export * from './console/index.js';
 export * from './highlighter/index.js';
 export * from './security/index.js';
 export * from './bridge/index.js';
+export * from './utils/index.js';

@@ -523,9 +523,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
-// Handle tool calls
+// Handle tool calls with performance timing
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+  const startTime = performance.now();
+  const getDuration = () => Math.round(performance.now() - startTime);
 
   try {
     // Check if bridge is connected
@@ -638,7 +640,7 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
           };
         }
 
-        console.error(`[claude_lens/navigate] Success`);
+        console.error(`[claude_lens/navigate] Success in ${getDuration()}ms`);
         return {
           content: [{ type: 'text', text: `Navigated to: ${url}` }],
         };
@@ -680,7 +682,7 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
         console.error(`[claude_lens/screenshot] Capturing${selector ? ` element: ${selector}` : ' full page'}...`);
         const imageData = await bridge.screenshot(selector);
         const sizeKB = Math.round((imageData.length * 3) / 4 / 1024); // base64 to bytes
-        console.error(`[claude_lens/screenshot] Captured: ${sizeKB}KB`);
+        console.error(`[claude_lens/screenshot] Captured: ${sizeKB}KB in ${getDuration()}ms`);
 
         return {
           content: [
@@ -700,7 +702,7 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
       case 'claude_lens/reload': {
         console.error(`[claude_lens/reload] Reloading page...`);
         await bridge.reload();
-        console.error(`[claude_lens/reload] Done`);
+        console.error(`[claude_lens/reload] Done in ${getDuration()}ms`);
         return {
           content: [
             {
@@ -748,7 +750,7 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
         const { selector, timeout, visible } = WaitForSchema.parse(args);
         console.error(`[claude_lens/wait_for] Waiting for: ${selector} (timeout: ${timeout || 30000}ms, visible: ${visible ?? true})`);
         const element = await bridge.waitFor(selector, { timeout, visible });
-        console.error(`[claude_lens/wait_for] Found: <${element.tagName}>`);
+        console.error(`[claude_lens/wait_for] Found: <${element.tagName}> in ${getDuration()}ms`);
         return {
           content: [
             {
@@ -765,7 +767,7 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
         const snapshot = await bridge.getAccessibilitySnapshot();
         // Count elements from the new compact format
         const elementCount = (snapshot.match(/^\d+\./gm) || []).length;
-        console.error(`[claude_lens/browser_snapshot] Found ${elementCount} interactive elements`);
+        console.error(`[claude_lens/browser_snapshot] Found ${elementCount} interactive elements in ${getDuration()}ms`);
         return {
           content: [
             {
@@ -856,7 +858,7 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
         const { urlPattern } = WaitForResponseSchema.parse(args);
         console.error(`[claude_lens/wait_for_response] Waiting for: ${urlPattern}`);
         const response = await bridge.waitForResponse(urlPattern);
-        console.error(`[claude_lens/wait_for_response] Got: ${response.status} ${response.url}`);
+        console.error(`[claude_lens/wait_for_response] Got: ${response.status} ${response.url} in ${getDuration()}ms`);
         return {
           content: [
             {
@@ -1000,6 +1002,7 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`[${name}] Failed after ${getDuration()}ms: ${message}`);
     // Never throw - return error in MCP format
     return {
       content: [{ type: 'text', text: `Error: ${message}` }],

@@ -10,12 +10,14 @@
 import { app, BrowserWindow, BrowserView, ipcMain, shell, dialog, clipboard, Menu } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
+import * as pty from 'node-pty';
 import { PtyManager } from './pty-manager';
 import { startMCPServer, stopMCPServer, setBrowserView, setConsoleBuffer } from './mcp-server';
-import { BridgeServer } from '@claude-lens/core';
+import { BridgeServer, CircularBuffer, debounce } from '@claude-lens/core';
 import { createPlaywrightBridgeHandler } from './playwright-handler.js';
 import { PlaywrightAdapter, getCDPPort } from './playwright-adapter.js';
-import { analyzeProject, ProjectInfo, detectPackageManager, checkDependencyHealth, DependencyHealth } from './project-manager';
+import { analyzeProject, ProjectInfo, detectPackageManager, checkDependencyHealth } from './project-manager';
 import { DevServerManager } from './dev-server';
 import { StaticServer } from './static-server';
 
@@ -75,8 +77,8 @@ interface ConsoleMessage {
   message: string;
   timestamp: number;
 }
-const consoleBuffer: ConsoleMessage[] = [];
 const MAX_CONSOLE_MESSAGES = 100;
+const consoleBuffer = new CircularBuffer<ConsoleMessage>(MAX_CONSOLE_MESSAGES);
 
 /**
  * Create the application menu
@@ -199,10 +201,8 @@ async function openProject(projectPath: string): Promise<void> {
 async function injectClaudeLensContext(projectPath: string): Promise<void> {
   const claudeDir = path.join(projectPath, '.claude');
 
-  // Create .claude directory if it doesn't exist
-  if (!fs.existsSync(claudeDir)) {
-    fs.mkdirSync(claudeDir, { recursive: true });
-  }
+  // Create .claude directory if it doesn't exist (async for non-blocking I/O)
+  await fsPromises.mkdir(claudeDir, { recursive: true });
 
   // Create CLAUDE.md in project root (highest precedence for project instructions)
   const claudeMdInstructions = `# Claude Lens Desktop Environment
@@ -287,8 +287,8 @@ Source files: \`${projectPath}\`
 
   // Check if CLAUDE.md already exists - if so, append our section
   let finalContent = claudeMdInstructions;
-  if (fs.existsSync(claudeMdPath)) {
-    const existing = fs.readFileSync(claudeMdPath, 'utf-8');
+  try {
+    const existing = await fsPromises.readFile(claudeMdPath, 'utf-8');
     // Only append if our section isn't already there
     if (!existing.includes('Claude Lens Desktop Environment')) {
       finalContent = existing + '\n\n---\n\n' + claudeMdInstructions;
@@ -297,8 +297,10 @@ Source files: \`${projectPath}\`
       console.log('Claude Lens context already in CLAUDE.md');
       finalContent = existing;
     }
+  } catch {
+    // File doesn't exist, use default content
   }
-  fs.writeFileSync(claudeMdPath, finalContent);
+  await fsPromises.writeFile(claudeMdPath, finalContent);
   console.log('Injected Claude Lens context into:', claudeMdPath);
 
   // Create .mcp.json to enable MCP tools in Claude Code
@@ -307,8 +309,10 @@ Source files: \`${projectPath}\`
   const mcpServerPath = path.resolve(__dirname, '../../../mcp-server/dist/index.js');
   console.log('Looking for MCP server at:', mcpServerPath);
 
-  // Check if the mcp-server exists (development mode)
-  if (fs.existsSync(mcpServerPath)) {
+  // Check if the mcp-server exists (development mode) - async for non-blocking I/O
+  try {
+    await fsPromises.access(mcpServerPath);
+
     const mcpConfig = {
       mcpServers: {
         'claude-lens': {
@@ -322,7 +326,7 @@ Source files: \`${projectPath}\`
     };
 
     const mcpConfigPath = path.join(projectPath, '.mcp.json');
-    fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
+    await fsPromises.writeFile(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
     console.log('Created MCP config:', mcpConfigPath);
 
     // Create settings.json to auto-approve MCP tools (reduces permission prompts)
@@ -363,8 +367,11 @@ Source files: \`${projectPath}\`
         ]
       }
     };
-    fs.writeFileSync(settingsJsonPath, JSON.stringify(settingsJson, null, 2));
+    await fsPromises.writeFile(settingsJsonPath, JSON.stringify(settingsJson, null, 2));
     console.log('Created permissions config:', settingsJsonPath);
+  } catch {
+    // MCP server not found, skip config creation (happens in production builds)
+    console.log('MCP server not found at:', mcpServerPath);
   }
 
 }
@@ -374,7 +381,6 @@ Source files: \`${projectPath}\`
  */
 async function runInstallCommand(projectPath: string, command: string): Promise<{ success: boolean; error?: string }> {
   return new Promise((resolve) => {
-    const pty = require('node-pty');
     const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
 
     const installPty = pty.spawn(shell, [], {
@@ -671,8 +677,10 @@ async function createWindow() {
     ptyManager?.dispose();
   });
 
-  // Handle resize to update BrowserView bounds
-  mainWindow.on('resize', () => updateBrowserViewBounds());
+  // Handle resize to update BrowserView bounds (debounced to reduce CPU usage)
+  // During drag resize, events fire at ~60fps - debounce to 16ms (~60fps cap)
+  const debouncedUpdateBounds = debounce(() => updateBrowserViewBounds(), 16);
+  mainWindow.on('resize', debouncedUpdateBounds);
   mainWindow.on('maximize', () => setTimeout(() => updateBrowserViewBounds(), 100));
   mainWindow.on('unmaximize', () => setTimeout(() => updateBrowserViewBounds(), 100));
   mainWindow.on('restore', () => setTimeout(() => updateBrowserViewBounds(), 100));
@@ -1276,11 +1284,8 @@ function setupBrowserViewMessaging() {
     // Send to renderer
     mainWindow?.webContents.send('console-message', consoleMsg);
 
-    // Add to buffer for MCP server
+    // Add to buffer for MCP server (CircularBuffer handles overflow automatically)
     consoleBuffer.push(consoleMsg);
-    if (consoleBuffer.length > MAX_CONSOLE_MESSAGES) {
-      consoleBuffer.shift();
-    }
   });
 }
 
@@ -1375,7 +1380,7 @@ app.whenReady().then(async () => {
     // Use Playwright-powered handler for full automation capabilities
     bridgeServer.setHandler(createPlaywrightBridgeHandler(
       () => browserView,
-      () => consoleBuffer,
+      () => consoleBuffer.toArray(),
       () => playwrightAdapter
     ));
     await bridgeServer.start();

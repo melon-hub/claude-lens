@@ -581,18 +581,17 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
     // Inject Claude Lens context into project before starting Claude
     await injectClaudeLensContext(currentProject.path);
 
-    // Restart Claude with project context
-    // Use local variable to avoid race conditions
-    if (ptyManager) {
-      ptyManager.dispose();
-    }
-    const newPtyManager = new PtyManager();
-    ptyManager = newPtyManager;
-    setupPtyForwarding();
-    await newPtyManager.start({ cwd: currentProject.path });
+    // Only start Claude if not already running
+    // If already running, keep the existing session (user can manually restart if needed)
+    if (!ptyManager?.isRunning()) {
+      const newPtyManager = new PtyManager();
+      ptyManager = newPtyManager;
+      setupPtyForwarding();
+      await newPtyManager.start({ cwd: currentProject.path });
 
-    // Notify renderer that Claude started automatically
-    mainWindow?.webContents.send('pty:autoStarted');
+      // Notify renderer that Claude started automatically
+      mainWindow?.webContents.send('pty:autoStarted');
+    }
 
     return { success: true, url };
   } catch (err) {
@@ -844,8 +843,21 @@ async function injectHoverTracking() {
 // PTY (Claude Code) handlers
 ipcMain.handle('pty:start', async () => {
   if (!ptyManager) return { success: false, error: 'PTY manager not initialized' };
+
+  // Require a project to be loaded first
+  if (!currentProject) {
+    // Trigger project picker dialog
+    await openProjectDialog();
+    // If still no project after dialog, user cancelled
+    if (!currentProject) {
+      return { success: false, error: 'Please open a project first (File > Open Project)' };
+    }
+  }
+
   try {
-    await ptyManager.start();
+    // Inject CLAUDE.md context before starting
+    await injectClaudeLensContext(currentProject.path);
+    await ptyManager.start({ cwd: currentProject.path });
     return { success: true };
   } catch (error) {
     return { success: false, error: String(error) };

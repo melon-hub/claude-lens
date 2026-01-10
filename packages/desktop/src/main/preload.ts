@@ -77,6 +77,9 @@ contextBridge.exposeInMainWorld('claudeLens', {
     onExit: (callback: (info: { code: number }) => void) => {
       ipcRenderer.on('server:exit', (_event, info) => callback(info));
     },
+    onProgress: (callback: (progress: { elapsed: number; status: string; phase: string }) => void) => {
+      ipcRenderer.on('server:progress', (_event, progress) => callback(progress));
+    },
   },
 
   // The key integration - send prompt to Claude with element context

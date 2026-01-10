@@ -17,6 +17,24 @@
   font-display: swap;
 }
 
+/* Symbols Nerd Font - fallback for Nerd Font icons */
+@font-face {
+  font-family: 'Symbols Nerd Font';
+  src: url('./fonts/SymbolsNerdFontMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Noto Sans Symbols 2 - comprehensive Unicode symbol coverage (U+23F5 play buttons etc) */
+@font-face {
+  font-family: 'Noto Sans Symbols 2';
+  src: url('./fonts/NotoSansSymbols2-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg-primary: #1e1e1e;
   --bg-secondary: #252526;

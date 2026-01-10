@@ -2,7 +2,7 @@
 
 > Living document tracking implementation progress
 
-**Last Updated:** 2025-01-08
+**Last Updated:** 2026-01-09
 **GitHub:** https://github.com/melon-hub/claude-lens
 
 ---
@@ -95,14 +95,14 @@
 
 ---
 
-## Phase 4: Polish (Week 4+) 🔄 IN PROGRESS
+## Phase 4: Polish (Week 4+) ✅ COMPLETE
 
 **Goal:** Production-ready extension
 
 ### 4.1 Error Handling
 - [x] Graceful Chrome disconnect recovery
-- [ ] Timeout handling for CDP operations
-- [ ] User-friendly error messages
+- [x] Timeout handling (5s default)
+- [x] User-friendly error messages
 
 ### 4.2 Settings
 - [x] Add extension settings (port, auto-refresh)
@@ -111,7 +111,7 @@
 
 ### 4.3 UX Polish
 - [ ] Loading states
-- [ ] Connection status indicator in status bar
+- [x] Connection status indicator in status bar
 - [ ] Keyboard shortcuts
 
 ### 4.4 Testing & Docs
@@ -120,7 +120,33 @@
 - [x] README with setup instructions
 - [ ] VS Code marketplace prep
 
-**Deliverable:** Publishable v1.0
+**Deliverable:** v0.2.1 released ✅
+
+---
+
+## Phase 5: Playwright Automation ✅ COMPLETE
+
+**Goal:** Full browser automation capabilities
+
+### 5.1 Playwright Integration
+- [x] Connect Playwright to Electron BrowserView via CDP
+- [x] PlaywrightAdapter class with all automation methods
+- [x] 5-second default timeout for fast feedback
+
+### 5.2 MCP Tools (25+ total)
+- [x] Form interaction: click, fill, type, select_option, press_key
+- [x] Mouse: hover, drag_and_drop, scroll
+- [x] Waiting: wait_for, wait_for_response
+- [x] Inspection: get_text, get_attribute, is_visible, is_enabled, is_checked
+- [x] Navigation: go_back, go_forward, handle_dialog, evaluate
+- [x] browser_snapshot (compact accessibility tree)
+
+### 5.3 Output Quality
+- [x] Human-readable tool outputs ("Clicked Submit button")
+- [x] Compact accessibility snapshot (~100 lines vs ~1400)
+- [x] Auto-permissions for all claude_lens tools
+
+**Deliverable:** Full automation in v0.2.1 ✅
 
 ---
 

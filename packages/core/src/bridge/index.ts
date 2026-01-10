@@ -60,6 +60,44 @@ export interface BridgeHandler {
 const DEFAULT_PORT = 9333;
 
 /**
+ * Validate required string parameter from request body
+ * @throws Error if the parameter is missing or not a valid string
+ */
+function validateString(body: Record<string, unknown>, field: string, required = true): string | undefined {
+  const value = body[field];
+  if (value === undefined || value === null) {
+    if (required) {
+      throw new Error(`Missing required parameter: ${field}`);
+    }
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`Invalid parameter ${field}: expected string, got ${typeof value}`);
+  }
+  if (required && !value.trim()) {
+    throw new Error(`Parameter ${field} cannot be empty`);
+  }
+  return value;
+}
+
+/**
+ * Validate required number parameter from request body
+ */
+function validateNumber(body: Record<string, unknown>, field: string, required = true): number | undefined {
+  const value = body[field];
+  if (value === undefined || value === null) {
+    if (required) {
+      throw new Error(`Missing required parameter: ${field}`);
+    }
+    return undefined;
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Invalid parameter ${field}: expected finite number, got ${value}`);
+  }
+  return value;
+}
+
+/**
  * Bridge server - runs in the VS Code extension
  */
 export class BridgeServer {
@@ -107,13 +145,25 @@ export class BridgeServer {
           let result: unknown;
 
           switch (path) {
+            case '/health':
+              // Health check endpoint for debugging and monitoring
+              result = {
+                status: 'ok',
+                connected: this.handler?.getState().connected ?? false,
+                timestamp: Date.now(),
+                uptime: process.uptime(),
+              };
+              break;
+
             case '/state':
               result = this.handler.getState();
               break;
 
-            case '/navigate':
-              result = await this.handler.navigate(body['url'] as string);
+            case '/navigate': {
+              const url = validateString(body, 'url');
+              result = await this.handler.navigate(url!);
               break;
+            }
 
             case '/inspect':
               if (body['x'] !== undefined && body['y'] !== undefined) {
@@ -126,13 +176,14 @@ export class BridgeServer {
               }
               break;
 
-            case '/highlight':
-              await this.handler.highlight(body['selector'] as string, {
-                color: body['color'] as string | undefined,
-                duration: body['duration'] as number | undefined,
-              });
+            case '/highlight': {
+              const selector = validateString(body, 'selector');
+              const color = validateString(body, 'color', false);
+              const duration = validateNumber(body, 'duration', false);
+              await this.handler.highlight(selector!, { color, duration });
               result = { success: true };
               break;
+            }
 
             case '/clear-highlights':
               await this.handler.clearHighlights();
@@ -158,39 +209,39 @@ export class BridgeServer {
               break;
 
             // Automation routes
-            case '/click':
-              await this.handler.click(
-                body['selector'] as string,
-                body['options'] as ClickOptions | undefined
-              );
+            case '/click': {
+              const selector = validateString(body, 'selector');
+              await this.handler.click(selector!, body['options'] as ClickOptions | undefined);
               result = { success: true };
               break;
+            }
 
-            case '/type':
-              await this.handler.type(
-                body['selector'] as string,
-                body['text'] as string,
-                body['options'] as TypeOptions | undefined
-              );
+            case '/type': {
+              const selector = validateString(body, 'selector');
+              const text = validateString(body, 'text');
+              await this.handler.type(selector!, text!, body['options'] as TypeOptions | undefined);
               result = { success: true };
               break;
+            }
 
-            case '/wait-for':
-              result = await this.handler.waitFor(
-                body['selector'] as string,
-                body['options'] as WaitForOptions | undefined
-              );
+            case '/wait-for': {
+              const selector = validateString(body, 'selector');
+              result = await this.handler.waitFor(selector!, body['options'] as WaitForOptions | undefined);
               break;
+            }
 
             // Playwright-powered routes
-            case '/fill':
+            case '/fill': {
+              const selector = validateString(body, 'selector');
+              const value = validateString(body, 'value');
               if (this.handler.fill) {
-                await this.handler.fill(body['selector'] as string, body['value'] as string);
+                await this.handler.fill(selector!, value!);
                 result = { success: true };
               } else {
                 throw new Error('fill not supported');
               }
               break;
+            }
 
             case '/select-option':
               if (this.handler.selectOption) {

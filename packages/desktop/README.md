@@ -41,14 +41,43 @@ Output will be in the `release/` directory.
 - xterm.js with Unicode support
 - Web links clickable
 
-### MCP Tools Integration
+### MCP Tools Integration (25+ Playwright-Powered Tools)
 When Claude Code runs in the embedded terminal, it automatically has access to:
-- `claude_lens/inspect_element` - Inspect DOM elements
-- `claude_lens/highlight_element` - Visual highlighting
-- `claude_lens/screenshot` - Capture viewport
+
+**Core:**
+- `claude_lens/screenshot` - Capture viewport or element
+- `claude_lens/browser_snapshot` - Accessibility tree for element discovery
 - `claude_lens/navigate` - Browser navigation
-- `claude_lens/get_console` - Console logs
 - `claude_lens/reload` - Page refresh
+
+**Form Interaction:**
+- `claude_lens/click` - Click elements
+- `claude_lens/fill` - Fill input fields
+- `claude_lens/type` - Type text character by character
+- `claude_lens/select_option` - Select dropdown options
+- `claude_lens/press_key` - Press keyboard keys
+
+**Mouse Interaction:**
+- `claude_lens/hover` - Hover over elements
+- `claude_lens/drag_and_drop` - Drag elements
+- `claude_lens/scroll` - Scroll page or element
+
+**Waiting:**
+- `claude_lens/wait_for` - Wait for elements
+- `claude_lens/wait_for_response` - Wait for network responses
+
+**Element Inspection:**
+- `claude_lens/inspect_element` - Get element details
+- `claude_lens/highlight_element` - Visual highlighting
+- `claude_lens/get_text` - Get element text
+- `claude_lens/get_attribute` - Get element attributes
+- `claude_lens/is_visible` / `is_enabled` / `is_checked` - State checks
+
+**Navigation & Dialogs:**
+- `claude_lens/go_back` / `go_forward` - Browser history
+- `claude_lens/handle_dialog` - Handle alert/confirm/prompt
+- `claude_lens/evaluate` - Execute JavaScript
+- `claude_lens/get_console` - Console logs
 
 ## Architecture
 

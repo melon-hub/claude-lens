@@ -6,6 +6,8 @@ Core library for Claude Lens - browser adapters, security utilities, and IPC bri
 
 This package provides the UI-agnostic foundation that powers both the VS Code extension and Desktop app. It handles browser control via Chrome DevTools Protocol (CDP), inter-process communication, and security validation.
 
+**Note:** The Desktop app extends this with `PlaywrightAdapter` (in `packages/desktop`) which connects Playwright to Electron's BrowserView via CDP for full automation capabilities.
+
 ## Installation
 
 ```bash

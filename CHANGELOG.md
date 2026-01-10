@@ -5,6 +5,25 @@ All notable changes to Claude Lens will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-01-09
+
+### Added
+- **Dev server progress timer** - Status bar shows elapsed time during startup (`Building project... (5s)`)
+- **Human-readable MCP tool outputs** - "Clicked Submit button" instead of raw JSON
+- **Explicit tool permissions** - Auto-allows all 25 claude_lens tools without prompts
+- **Terminal resize fix** - Debounced refresh prevents horizontal line artifacts
+
+### Changed
+- **Compact browser_snapshot** - Reduced from ~14k tokens to ~100 lines by only including interactive elements
+- **Faster timeouts** - Default timeout reduced from 30s to 5s for quicker feedback on bad selectors
+- **CLAUDE.md guidance** - Explicitly warns against using generic `browser_*` tools when `claude_lens/*` tools are available
+
+### Improved
+- `claude_lens/evaluate` now returns concise summaries instead of full JSON dumps
+- `claude_lens/click` describes what was clicked ("Clicked Submit button")
+- `claude_lens/fill` identifies field types ("Filled email field with...")
+- `claude_lens/type` shows character count instead of full text
+
 ## [0.2.0] - 2026-01-09
 
 ### Added

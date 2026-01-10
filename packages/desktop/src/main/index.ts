@@ -10,9 +10,11 @@
 import { app, BrowserWindow, BrowserView, ipcMain, shell, dialog, clipboard, Menu } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
+import * as pty from 'node-pty';
 import { PtyManager } from './pty-manager';
 import { startMCPServer, stopMCPServer, setBrowserView, setConsoleBuffer } from './mcp-server';
-import { BridgeServer } from '@claude-lens/core';
+import { BridgeServer, CircularBuffer, debounce } from '@claude-lens/core';
 import { createPlaywrightBridgeHandler } from './playwright-handler.js';
 import { PlaywrightAdapter, getCDPPort } from './playwright-adapter.js';
 import { analyzeProject, ProjectInfo, detectPackageManager, checkDependencyHealth } from './project-manager';
@@ -76,8 +78,8 @@ interface ConsoleMessage {
   message: string;
   timestamp: number;
 }
-const consoleBuffer: ConsoleMessage[] = [];
 const MAX_CONSOLE_MESSAGES = 100;
+const consoleBuffer = new CircularBuffer<ConsoleMessage>(MAX_CONSOLE_MESSAGES);
 
 /**
  * Create the application menu
@@ -200,44 +202,70 @@ async function openProject(projectPath: string): Promise<void> {
 async function injectClaudeLensContext(projectPath: string): Promise<void> {
   const claudeDir = path.join(projectPath, '.claude');
 
-  // Create .claude directory if it doesn't exist
-  if (!fs.existsSync(claudeDir)) {
-    fs.mkdirSync(claudeDir, { recursive: true });
-  }
+  // Create .claude directory if it doesn't exist (async for non-blocking I/O)
+  await fsPromises.mkdir(claudeDir, { recursive: true });
 
   // Create CLAUDE.md in project root (highest precedence for project instructions)
   const claudeMdInstructions = `# Claude Lens Desktop Environment
 
-**IMPORTANT: You are running inside Claude Lens Desktop, NOT a standard terminal.**
+**IMPORTANT: You are running inside Claude Lens Desktop with Playwright-powered browser automation.**
 
-## Browser Automation - CRITICAL
+## CRITICAL: Use \`claude_lens/*\` Tools (NOT \`browser_*\` Tools)
 
-**DO NOT use Playwright, browser_snapshot, or any Playwright-based tools.**
-They will NOT work in this environment.
+You may have other Playwright MCP tools available (like \`browser_navigate\`, \`browser_click\`, \`browser_take_screenshot\`, etc.).
 
-**USE ONLY the \`claude_lens/*\` MCP tools:**
+**DO NOT use those generic \`browser_*\` tools for this project.** They connect to a different browser instance and won't work with Claude Lens.
 
+**ALWAYS use \`claude_lens/*\` tools** - they are specifically designed for the Claude Lens embedded browser.
+
+## Browser Tools (Claude Lens)
+
+Use the \`claude_lens/*\` MCP tools for browser automation:
+
+### Core Tools
 | Tool | Purpose |
 |------|---------|
 | \`claude_lens/screenshot\` | Take a screenshot (do this FIRST to see the page) |
-| \`claude_lens/click\` | Click an element using CSS selector |
-| \`claude_lens/type\` | Type text into an input |
+| \`claude_lens/browser_snapshot\` | Get accessibility tree for fast element discovery |
+| \`claude_lens/click\` | Click an element |
+| \`claude_lens/fill\` | Fill input field (clears first) |
+| \`claude_lens/type\` | Type text character by character |
+| \`claude_lens/navigate\` | Navigate to a URL |
+| \`claude_lens/reload\` | Reload page after code changes |
+
+### Advanced Automation
+| Tool | Purpose |
+|------|---------|
+| \`claude_lens/hover\` | Hover over element (trigger hover states) |
+| \`claude_lens/select_option\` | Select dropdown option |
+| \`claude_lens/press_key\` | Press keyboard key (Enter, Tab, Escape) |
+| \`claude_lens/drag_and_drop\` | Drag from source to target |
+| \`claude_lens/scroll\` | Scroll page or element |
+| \`claude_lens/wait_for\` | Wait for element to appear |
+| \`claude_lens/wait_for_response\` | Wait for network response |
+
+### Element Inspection
+| Tool | Purpose |
+|------|---------|
 | \`claude_lens/inspect_element\` | Get element details |
 | \`claude_lens/highlight_element\` | Highlight an element |
+| \`claude_lens/get_text\` | Get element text content |
+| \`claude_lens/get_attribute\` | Get element attribute |
+| \`claude_lens/is_visible\` | Check if element is visible |
+| \`claude_lens/is_enabled\` | Check if element is enabled |
 | \`claude_lens/get_console\` | Get browser console logs |
-| \`claude_lens/reload\` | Reload page after code changes |
-| \`claude_lens/navigate\` | Navigate to a URL |
 
-## CSS Selectors ONLY
+### Navigation & Dialogs
+| Tool | Purpose |
+|------|---------|
+| \`claude_lens/go_back\` | Browser back button |
+| \`claude_lens/go_forward\` | Browser forward button |
+| \`claude_lens/handle_dialog\` | Accept or dismiss alert/confirm dialogs |
+| \`claude_lens/evaluate\` | Execute custom JavaScript |
 
-These tools use **standard CSS selectors**, not Playwright selectors.
+## CSS Selectors
 
-**WRONG (will fail):**
-- \`:has-text("Submit")\`
-- \`:text("Click")\`
-- \`button:has-text("Edit")\`
-
-**CORRECT:**
+Use **standard CSS selectors**:
 - \`#submit-btn\` (ID)
 - \`.btn-primary\` (class)
 - \`[data-testid="submit"]\` (attribute)
@@ -245,7 +273,7 @@ These tools use **standard CSS selectors**, not Playwright selectors.
 
 ## Workflow
 
-1. \`claude_lens/screenshot\` → See the page
+1. \`claude_lens/screenshot\` or \`claude_lens/browser_snapshot\` → See the page
 2. Make code changes
 3. \`claude_lens/reload\` → See updates
 4. \`claude_lens/screenshot\` → Verify
@@ -260,8 +288,8 @@ Source files: \`${projectPath}\`
 
   // Check if CLAUDE.md already exists - if so, append our section
   let finalContent = claudeMdInstructions;
-  if (fs.existsSync(claudeMdPath)) {
-    const existing = fs.readFileSync(claudeMdPath, 'utf-8');
+  try {
+    const existing = await fsPromises.readFile(claudeMdPath, 'utf-8');
     // Only append if our section isn't already there
     if (!existing.includes('Claude Lens Desktop Environment')) {
       finalContent = existing + '\n\n---\n\n' + claudeMdInstructions;
@@ -270,8 +298,10 @@ Source files: \`${projectPath}\`
       console.log('Claude Lens context already in CLAUDE.md');
       finalContent = existing;
     }
+  } catch {
+    // File doesn't exist, use default content
   }
-  fs.writeFileSync(claudeMdPath, finalContent);
+  await fsPromises.writeFile(claudeMdPath, finalContent);
   console.log('Injected Claude Lens context into:', claudeMdPath);
 
   // Create .mcp.json to enable MCP tools in Claude Code
@@ -280,8 +310,10 @@ Source files: \`${projectPath}\`
   const mcpServerPath = path.resolve(__dirname, '../../../mcp-server/dist/index.js');
   console.log('Looking for MCP server at:', mcpServerPath);
 
-  // Check if the mcp-server exists (development mode)
-  if (fs.existsSync(mcpServerPath)) {
+  // Check if the mcp-server exists (development mode) - async for non-blocking I/O
+  try {
+    await fsPromises.access(mcpServerPath);
+
     const mcpConfig = {
       mcpServers: {
         'claude-lens': {
@@ -295,20 +327,52 @@ Source files: \`${projectPath}\`
     };
 
     const mcpConfigPath = path.join(projectPath, '.mcp.json');
-    fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
+    await fsPromises.writeFile(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
     console.log('Created MCP config:', mcpConfigPath);
 
     // Create settings.json to auto-approve MCP tools (reduces permission prompts)
+    // Format: mcp__<server-name>__<tool-name> where server is "claude-lens" and tools are "claude_lens/..."
     const settingsJsonPath = path.join(claudeDir, 'settings.json');
     const settingsJson = {
       permissions: {
         allow: [
-          'mcp__claude-lens__*'  // Allow all claude-lens MCP tools
+          // Wildcard for all claude-lens tools
+          'mcp__claude-lens__*',
+          // Explicit permissions as fallback (Claude Code may not support wildcards)
+          'mcp__claude-lens__claude_lens/screenshot',
+          'mcp__claude-lens__claude_lens/browser_snapshot',
+          'mcp__claude-lens__claude_lens/click',
+          'mcp__claude-lens__claude_lens/fill',
+          'mcp__claude-lens__claude_lens/type',
+          'mcp__claude-lens__claude_lens/navigate',
+          'mcp__claude-lens__claude_lens/reload',
+          'mcp__claude-lens__claude_lens/hover',
+          'mcp__claude-lens__claude_lens/select_option',
+          'mcp__claude-lens__claude_lens/press_key',
+          'mcp__claude-lens__claude_lens/drag_and_drop',
+          'mcp__claude-lens__claude_lens/scroll',
+          'mcp__claude-lens__claude_lens/wait_for',
+          'mcp__claude-lens__claude_lens/wait_for_response',
+          'mcp__claude-lens__claude_lens/inspect_element',
+          'mcp__claude-lens__claude_lens/highlight_element',
+          'mcp__claude-lens__claude_lens/get_text',
+          'mcp__claude-lens__claude_lens/get_attribute',
+          'mcp__claude-lens__claude_lens/is_visible',
+          'mcp__claude-lens__claude_lens/is_enabled',
+          'mcp__claude-lens__claude_lens/is_checked',
+          'mcp__claude-lens__claude_lens/get_console',
+          'mcp__claude-lens__claude_lens/go_back',
+          'mcp__claude-lens__claude_lens/go_forward',
+          'mcp__claude-lens__claude_lens/handle_dialog',
+          'mcp__claude-lens__claude_lens/evaluate'
         ]
       }
     };
-    fs.writeFileSync(settingsJsonPath, JSON.stringify(settingsJson, null, 2));
+    await fsPromises.writeFile(settingsJsonPath, JSON.stringify(settingsJson, null, 2));
     console.log('Created permissions config:', settingsJsonPath);
+  } catch {
+    // MCP server not found, skip config creation (happens in production builds)
+    console.log('MCP server not found at:', mcpServerPath);
   }
 
 }
@@ -465,6 +529,11 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
         });
       });
 
+      serverManager.setOnProgress((progress) => {
+        console.log(`[DevServer] ${progress.status}`);
+        mainWindow?.webContents.send('server:progress', progress);
+      });
+
       await serverManager.start(currentProject.path, currentProject.devCommand, port);
       // Use the actual detected port (may differ from suggested port)
       const actualPort = serverManager.getActualPort() || port;
@@ -609,8 +678,10 @@ async function createWindow() {
     ptyManager?.dispose();
   });
 
-  // Handle resize to update BrowserView bounds
-  mainWindow.on('resize', () => updateBrowserViewBounds());
+  // Handle resize to update BrowserView bounds (debounced to reduce CPU usage)
+  // During drag resize, events fire at ~60fps - debounce to 16ms (~60fps cap)
+  const debouncedUpdateBounds = debounce(() => updateBrowserViewBounds(), 16);
+  mainWindow.on('resize', debouncedUpdateBounds);
   mainWindow.on('maximize', () => setTimeout(() => updateBrowserViewBounds(), 100));
   mainWindow.on('unmaximize', () => setTimeout(() => updateBrowserViewBounds(), 100));
   mainWindow.on('restore', () => setTimeout(() => updateBrowserViewBounds(), 100));
@@ -1565,11 +1636,8 @@ function setupBrowserViewMessaging() {
     // Send to renderer
     mainWindow?.webContents.send('console-message', consoleMsg);
 
-    // Add to buffer for MCP server
+    // Add to buffer for MCP server (CircularBuffer handles overflow automatically)
     consoleBuffer.push(consoleMsg);
-    if (consoleBuffer.length > MAX_CONSOLE_MESSAGES) {
-      consoleBuffer.shift();
-    }
   });
 }
 
@@ -1664,7 +1732,7 @@ app.whenReady().then(async () => {
     // Use Playwright-powered handler for full automation capabilities
     bridgeServer.setHandler(createPlaywrightBridgeHandler(
       () => browserView,
-      () => consoleBuffer,
+      () => consoleBuffer.toArray(),
       () => playwrightAdapter
     ));
     await bridgeServer.start();

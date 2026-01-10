@@ -8,13 +8,14 @@
 import * as pty from 'node-pty';
 import * as net from 'net';
 import * as os from 'os';
+import { CircularBuffer } from '@claude-lens/core';
 
 export interface DevServerState {
   process: pty.IPty;
   port: number;
   actualPort: number | null; // The port detected from server output
   ready: boolean;
-  output: string[];
+  output: CircularBuffer<string>; // O(1) circular buffer for output lines
   errors: DevServerError[];
 }
 
@@ -25,12 +26,19 @@ export interface DevServerError {
   raw: string;
 }
 
+export interface DevServerProgress {
+  elapsed: number;      // Seconds elapsed
+  status: string;       // Human-readable status
+  phase: 'starting' | 'installing' | 'building' | 'waiting' | 'ready' | 'error';
+}
+
 export class DevServerManager {
   private server: DevServerState | null = null;
   private onOutputCallback: ((data: string) => void) | null = null;
   private onReadyCallback: (() => void) | null = null;
   private onExitCallback: ((code: number) => void) | null = null;
   private onErrorCallback: ((error: DevServerError) => void) | null = null;
+  private onProgressCallback: ((progress: DevServerProgress) => void) | null = null;
 
   /**
    * Start a dev server in the given project directory
@@ -70,18 +78,15 @@ export class DevServerManager {
       port,
       actualPort: null,
       ready: false,
-      output: [],
+      output: new CircularBuffer<string>(1000), // O(1) circular buffer
       errors: [],
     };
 
     // Handle output
     ptyProcess.onData((data) => {
       if (this.server) {
+        // CircularBuffer handles overflow automatically - O(1) operation
         this.server.output.push(data);
-        // Keep only last 1000 lines
-        if (this.server.output.length > 1000) {
-          this.server.output.shift();
-        }
 
         // Try to detect actual port from output
         if (!this.server.actualPort) {
@@ -263,11 +268,30 @@ export class DevServerManager {
   /**
    * Wait for the server to become available
    * First tries to detect the actual port from output, then checks if it's open
+   * Emits progress updates every second
    */
   private async waitForPort(suggestedPort: number, timeout: number): Promise<void> {
     const start = Date.now();
+    let lastProgressUpdate = 0;
+
+    // Emit initial progress
+    this.onProgressCallback?.({
+      elapsed: 0,
+      status: 'Starting dev server...',
+      phase: 'starting',
+    });
 
     while (Date.now() - start < timeout) {
+      const elapsed = Math.floor((Date.now() - start) / 1000);
+
+      // Emit progress update every second
+      if (elapsed > lastProgressUpdate) {
+        lastProgressUpdate = elapsed;
+        const phase = this.detectPhaseFromOutput();
+        const status = this.getStatusMessage(phase, elapsed, suggestedPort);
+        this.onProgressCallback?.({ elapsed, status, phase });
+      }
+
       // Check if we detected the actual port from output
       const portToCheck = this.server?.actualPort || suggestedPort;
 
@@ -276,6 +300,12 @@ export class DevServerManager {
         if (this.server && !this.server.actualPort) {
           this.server.actualPort = portToCheck;
         }
+        // Emit ready progress
+        this.onProgressCallback?.({
+          elapsed: Math.floor((Date.now() - start) / 1000),
+          status: `Server ready on port ${portToCheck}`,
+          phase: 'ready',
+        });
         return;
       }
 
@@ -283,6 +313,11 @@ export class DevServerManager {
       // try that port directly
       if (this.server?.actualPort && this.server.actualPort !== suggestedPort) {
         if (await this.isPortOpen(this.server.actualPort)) {
+          this.onProgressCallback?.({
+            elapsed: Math.floor((Date.now() - start) / 1000),
+            status: `Server ready on port ${this.server.actualPort}`,
+            phase: 'ready',
+          });
           return;
         }
       }
@@ -291,7 +326,54 @@ export class DevServerManager {
     }
 
     const portTried = this.server?.actualPort || suggestedPort;
+    this.onProgressCallback?.({
+      elapsed: Math.floor((Date.now() - start) / 1000),
+      status: `Timeout waiting for port ${portTried}`,
+      phase: 'error',
+    });
     throw new Error(`Server did not start on port ${portTried} within ${timeout}ms`);
+  }
+
+  /**
+   * Detect current phase from server output
+   */
+  private detectPhaseFromOutput(): DevServerProgress['phase'] {
+    const recentOutput = this.server?.output.last(10).join('') || '';
+
+    if (recentOutput.includes('npm install') || recentOutput.includes('installing')) {
+      return 'installing';
+    }
+    if (recentOutput.includes('building') || recentOutput.includes('compiling') ||
+        recentOutput.includes('transforming') || recentOutput.includes('bundling')) {
+      return 'building';
+    }
+    if (this.server?.ready) {
+      return 'ready';
+    }
+    if (this.server?.errors.length) {
+      return 'error';
+    }
+    return 'waiting';
+  }
+
+  /**
+   * Get human-readable status message
+   */
+  private getStatusMessage(phase: DevServerProgress['phase'], elapsed: number, port: number): string {
+    switch (phase) {
+      case 'installing':
+        return `Installing dependencies... (${elapsed}s)`;
+      case 'building':
+        return `Building project... (${elapsed}s)`;
+      case 'waiting':
+        return `Waiting for server on port ${port}... (${elapsed}s)`;
+      case 'ready':
+        return `Server ready!`;
+      case 'error':
+        return `Error occurred (${elapsed}s)`;
+      default:
+        return `Starting... (${elapsed}s)`;
+    }
   }
 
   /**
@@ -368,6 +450,13 @@ export class DevServerManager {
   }
 
   /**
+   * Set callback for progress updates (elapsed time, status)
+   */
+  setOnProgress(callback: (progress: DevServerProgress) => void): void {
+    this.onProgressCallback = callback;
+  }
+
+  /**
    * Check if server is running and ready
    */
   isRunning(): boolean {
@@ -392,7 +481,7 @@ export class DevServerManager {
    * Get recent server output
    */
   getOutput(): string[] {
-    return this.server?.output ?? [];
+    return this.server?.output.toArray() ?? [];
   }
 
   /**

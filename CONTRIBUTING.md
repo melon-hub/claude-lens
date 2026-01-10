@@ -140,7 +140,7 @@ Claude Code receives context
 ### Key Design Decisions
 
 1. **HTTP Bridge**: MCP server runs in separate process, HTTP enables cross-process communication
-2. **CDP over Puppeteer**: Direct CDP access provides full DevTools capabilities without extra abstraction
+2. **Playwright via CDP**: Playwright connected via `connectOverCDP()` to Electron's BrowserView provides full automation (25+ tools) while controlling the embedded browser
 3. **Core as shared library**: Keeps browser logic separate from UI implementations
 
 ## Getting Help

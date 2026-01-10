@@ -2,8 +2,10 @@
 
 > Adding browser-use style capabilities to Claude Lens
 
-**Status:** Design Draft
+**Status:** ✅ IMPLEMENTED (v0.2.1)
 **Date:** 2026-01-09
+
+> **Note:** This design document has been implemented. See [MCP-TOOLS.md](../api/MCP-TOOLS.md) for current tool documentation.
 
 ---
 
@@ -507,10 +509,12 @@ Claude: I'll step through the checkout flow and watch for errors.
 
 ---
 
-## Next Steps
+## Implementation Status
 
-1. [ ] Implement `click` tool as proof of concept
-2. [ ] Add action logging/audit trail
+1. [x] Implement `click` tool as proof of concept
+2. [x] Add all automation tools (25+ total)
 3. [ ] Design UI for showing automated actions
-4. [ ] Test with real-world workflows
+4. [x] Test with real-world workflows
 5. [ ] Gather feedback on safety/confirmation needs
+
+**Implemented in v0.2.1** via Playwright connected to Electron's BrowserView through CDP.

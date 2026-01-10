@@ -523,9 +523,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
-// Handle tool calls
+// Handle tool calls with performance timing
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+  const startTime = performance.now();
+  const getDuration = () => Math.round(performance.now() - startTime);
 
   try {
     // Check if bridge is connected
@@ -545,6 +547,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       case 'claude_lens/inspect_element': {
         const { selector } = InspectElementSchema.parse(args);
+        console.error(`[claude_lens/inspect_element] Inspecting${selector ? `: ${selector}` : ' clicked element'}...`);
         const element = await bridge.inspectElement(selector);
 
         if (!element) {
@@ -587,6 +590,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 ### Attributes
 ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') || 'None'}
 `;
+        console.error(`[claude_lens/inspect_element] Found: <${element.tagName}> at (${element.boundingBox.x}, ${element.boundingBox.y})`);
 
         return {
           content: [{ type: 'text', text: info }],
@@ -595,7 +599,9 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/highlight_element': {
         const { selector, color, duration } = HighlightElementSchema.parse(args);
+        console.error(`[claude_lens/highlight_element] Highlighting: ${selector} (${color || 'red'}, ${duration || 3000}ms)`);
         await bridge.highlight(selector, { color, duration: duration ?? 3000 });
+        console.error(`[claude_lens/highlight_element] Done`);
 
         return {
           content: [
@@ -609,6 +615,7 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/navigate': {
         const { url } = NavigateSchema.parse(args);
+        console.error(`[claude_lens/navigate] Navigating to: ${url}`);
 
         // Validate URL is localhost
         if (!isAllowedUrl(url)) {
@@ -626,12 +633,14 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
         const result = await bridge.navigate(url);
 
         if (!result.success) {
+          console.error(`[claude_lens/navigate] Failed: ${result.error}`);
           return {
             content: [{ type: 'text', text: `Navigation failed: ${result.error}` }],
             isError: true,
           };
         }
 
+        console.error(`[claude_lens/navigate] Success in ${getDuration()}ms`);
         return {
           content: [{ type: 'text', text: `Navigated to: ${url}` }],
         };
@@ -639,6 +648,7 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/get_console': {
         const { level, limit } = GetConsoleSchema.parse(args);
+        console.error(`[claude_lens/get_console] Fetching ${level} logs (limit: ${limit || 'none'})...`);
         const messages = await bridge.getConsoleLogs(level, limit);
 
         if (messages.length === 0) {
@@ -661,6 +671,7 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
           })
           .join('\n');
 
+        console.error(`[claude_lens/get_console] Found ${messages.length} messages`);
         return {
           content: [{ type: 'text', text: `## Console Messages\n\n\`\`\`\n${formatted}\n\`\`\`` }],
         };
@@ -668,10 +679,17 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/screenshot': {
         const { selector } = ScreenshotSchema.parse(args);
+        console.error(`[claude_lens/screenshot] Capturing${selector ? ` element: ${selector}` : ' full page'}...`);
         const imageData = await bridge.screenshot(selector);
+        const sizeKB = Math.round((imageData.length * 3) / 4 / 1024); // base64 to bytes
+        console.error(`[claude_lens/screenshot] Captured: ${sizeKB}KB in ${getDuration()}ms`);
 
         return {
           content: [
+            {
+              type: 'text',
+              text: `Screenshot captured (${sizeKB}KB)${selector ? ` of element: ${selector}` : ''}`,
+            },
             {
               type: 'image',
               data: imageData,
@@ -682,7 +700,9 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
       }
 
       case 'claude_lens/reload': {
+        console.error(`[claude_lens/reload] Reloading page...`);
         await bridge.reload();
+        console.error(`[claude_lens/reload] Done in ${getDuration()}ms`);
         return {
           content: [
             {
@@ -695,35 +715,42 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/click': {
         const { selector, button, clickCount, delay } = ClickSchema.parse(args);
-        await bridge.click(selector, { button, clickCount, delay });
         const clickType = clickCount === 2 ? 'Double-clicked' : 'Clicked';
+        console.error(`[claude_lens/click] ${clickType}: ${selector}${button ? ` (${button})` : ''}`);
+        await bridge.click(selector, { button, clickCount, delay });
+        console.error(`[claude_lens/click] Done`);
+        // Describe what was clicked in plain language
+        const lowerSel = selector.toLowerCase();
+        const elementDesc = lowerSel.includes('submit') ? 'Submit button'
+          : lowerSel.includes('cancel') ? 'Cancel button'
+          : lowerSel.includes('save') ? 'Save button'
+          : lowerSel.includes('delete') ? 'Delete button'
+          : lowerSel.includes('add') ? 'Add button'
+          : lowerSel.includes('btn') || lowerSel.includes('button') ? `button ${selector}`
+          : lowerSel.includes('link') || selector.startsWith('a') ? `link ${selector}`
+          : selector;
         return {
-          content: [
-            {
-              type: 'text',
-              text: `${clickType} element: ${selector}`,
-            },
-          ],
+          content: [{ type: 'text', text: `${clickType} ${elementDesc}` }],
         };
       }
 
       case 'claude_lens/type': {
         const { selector, text, clearFirst, delay } = TypeSchema.parse(args);
-        await bridge.type(selector, text, { clearFirst, delay });
         const preview = text.length > 50 ? text.substring(0, 50) + '...' : text;
+        console.error(`[claude_lens/type] Typing "${preview}" into: ${selector}${clearFirst ? ' (clearing first)' : ''}`);
+        await bridge.type(selector, text, { clearFirst, delay });
+        console.error(`[claude_lens/type] Done`);
+        const charCount = text.length;
         return {
-          content: [
-            {
-              type: 'text',
-              text: `Typed "${preview}" into ${selector}${clearFirst ? ' (cleared first)' : ''}`,
-            },
-          ],
+          content: [{ type: 'text', text: `Typed ${charCount} characters into ${selector}` }],
         };
       }
 
       case 'claude_lens/wait_for': {
         const { selector, timeout, visible } = WaitForSchema.parse(args);
+        console.error(`[claude_lens/wait_for] Waiting for: ${selector} (timeout: ${timeout || 30000}ms, visible: ${visible ?? true})`);
         const element = await bridge.waitFor(selector, { timeout, visible });
+        console.error(`[claude_lens/wait_for] Found: <${element.tagName}> in ${getDuration()}ms`);
         return {
           content: [
             {
@@ -736,12 +763,16 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       // Playwright-powered tool handlers
       case 'claude_lens/browser_snapshot': {
+        console.error(`[claude_lens/browser_snapshot] Scanning page for interactive elements...`);
         const snapshot = await bridge.getAccessibilitySnapshot();
+        // Count elements from the new compact format
+        const elementCount = (snapshot.match(/^\d+\./gm) || []).length;
+        console.error(`[claude_lens/browser_snapshot] Found ${elementCount} interactive elements in ${getDuration()}ms`);
         return {
           content: [
             {
               type: 'text',
-              text: `## Accessibility Tree\n\n\`\`\`json\n${snapshot}\n\`\`\``,
+              text: snapshot, // Already formatted as readable list
             },
           ],
         };
@@ -749,16 +780,27 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/fill': {
         const { selector, value } = FillSchema.parse(args);
-        await bridge.fill(selector, value);
         const preview = value.length > 50 ? value.substring(0, 50) + '...' : value;
+        console.error(`[claude_lens/fill] Filling: ${selector} with "${preview}"`);
+        await bridge.fill(selector, value);
+        console.error(`[claude_lens/fill] Done`);
+        // Describe what was filled in plain language
+        const fieldDesc = selector.includes('email') ? 'email field'
+          : selector.includes('password') ? 'password field'
+          : selector.includes('name') ? 'name field'
+          : selector.includes('search') ? 'search box'
+          : `input ${selector}`;
         return {
-          content: [{ type: 'text', text: `Filled "${preview}" into ${selector}` }],
+          content: [{ type: 'text', text: `Filled ${fieldDesc} with "${preview}"` }],
         };
       }
 
       case 'claude_lens/select_option': {
         const { selector, values } = SelectOptionSchema.parse(args);
+        const valuesStr = Array.isArray(values) ? values.join(', ') : values;
+        console.error(`[claude_lens/select_option] Selecting in: ${selector} values: ${valuesStr}`);
         const selected = await bridge.selectOption(selector, values);
+        console.error(`[claude_lens/select_option] Selected: ${selected.join(', ')}`);
         return {
           content: [
             { type: 'text', text: `Selected option(s): ${selected.join(', ')} in ${selector}` },
@@ -768,7 +810,9 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/hover': {
         const { selector } = HoverSchema.parse(args);
+        console.error(`[claude_lens/hover] Hovering: ${selector}`);
         await bridge.hover(selector);
+        console.error(`[claude_lens/hover] Done`);
         return {
           content: [{ type: 'text', text: `Hovered over ${selector}` }],
         };
@@ -776,7 +820,9 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/press_key': {
         const { key } = PressKeySchema.parse(args);
+        console.error(`[claude_lens/press_key] Pressing: ${key}`);
         await bridge.pressKey(key);
+        console.error(`[claude_lens/press_key] Done`);
         return {
           content: [{ type: 'text', text: `Pressed key: ${key}` }],
         };
@@ -784,7 +830,9 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/drag_and_drop': {
         const { source, target } = DragAndDropSchema.parse(args);
+        console.error(`[claude_lens/drag_and_drop] Dragging: ${source} -> ${target}`);
         await bridge.dragAndDrop(source, target);
+        console.error(`[claude_lens/drag_and_drop] Done`);
         return {
           content: [{ type: 'text', text: `Dragged ${source} to ${target}` }],
         };
@@ -792,7 +840,10 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/scroll': {
         const { selector, direction, distance } = ScrollSchema.parse(args);
+        const scrollDesc = selector ? `into view: ${selector}` : `${direction} ${distance}px`;
+        console.error(`[claude_lens/scroll] Scrolling ${scrollDesc}`);
         await bridge.scroll({ selector, direction, distance });
+        console.error(`[claude_lens/scroll] Done`);
         const desc = selector
           ? `Scrolled ${selector} into view`
           : direction
@@ -805,7 +856,9 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/wait_for_response': {
         const { urlPattern } = WaitForResponseSchema.parse(args);
+        console.error(`[claude_lens/wait_for_response] Waiting for: ${urlPattern}`);
         const response = await bridge.waitForResponse(urlPattern);
+        console.error(`[claude_lens/wait_for_response] Got: ${response.status} ${response.url} in ${getDuration()}ms`);
         return {
           content: [
             {
@@ -818,7 +871,10 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/get_text': {
         const { selector } = GetTextSchema.parse(args);
+        console.error(`[claude_lens/get_text] Getting text from: ${selector}`);
         const text = await bridge.getText(selector);
+        const preview = text.length > 100 ? text.substring(0, 100) + '...' : text;
+        console.error(`[claude_lens/get_text] Got: "${preview}"`);
         return {
           content: [{ type: 'text', text: `Text content of ${selector}:\n"${text}"` }],
         };
@@ -826,7 +882,9 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/get_attribute': {
         const { selector, name: attrName } = GetAttributeSchema.parse(args);
+        console.error(`[claude_lens/get_attribute] Getting ${attrName} from: ${selector}`);
         const value = await bridge.getAttribute(selector, attrName);
+        console.error(`[claude_lens/get_attribute] Got: ${value !== null ? `"${value}"` : 'null'}`);
         return {
           content: [
             {
@@ -841,7 +899,9 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/is_visible': {
         const { selector } = IsVisibleSchema.parse(args);
+        console.error(`[claude_lens/is_visible] Checking: ${selector}`);
         const visible = await bridge.isVisible(selector);
+        console.error(`[claude_lens/is_visible] Result: ${visible}`);
         return {
           content: [{ type: 'text', text: `${selector} is ${visible ? 'visible' : 'not visible'}` }],
         };
@@ -849,7 +909,9 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/is_enabled': {
         const { selector } = IsEnabledSchema.parse(args);
+        console.error(`[claude_lens/is_enabled] Checking: ${selector}`);
         const enabled = await bridge.isEnabled(selector);
+        console.error(`[claude_lens/is_enabled] Result: ${enabled}`);
         return {
           content: [{ type: 'text', text: `${selector} is ${enabled ? 'enabled' : 'disabled'}` }],
         };
@@ -857,7 +919,9 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/is_checked': {
         const { selector } = IsCheckedSchema.parse(args);
+        console.error(`[claude_lens/is_checked] Checking: ${selector}`);
         const checked = await bridge.isChecked(selector);
+        console.error(`[claude_lens/is_checked] Result: ${checked}`);
         return {
           content: [{ type: 'text', text: `${selector} is ${checked ? 'checked' : 'not checked'}` }],
         };
@@ -865,26 +929,51 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/evaluate': {
         const { script } = EvaluateSchema.parse(args);
+        const scriptPreview = script.length > 50 ? script.substring(0, 50) + '...' : script;
+        console.error(`[claude_lens/evaluate] Running: ${scriptPreview}`);
         const result = await bridge.evaluate(script);
+        console.error(`[claude_lens/evaluate] Done`);
+
+        // Format result in a compact, human-readable way
+        let resultText: string;
+        if (result === undefined || result === null) {
+          resultText = 'Executed successfully (no return value)';
+        } else if (typeof result === 'string') {
+          resultText = result.length > 200 ? `"${result.slice(0, 200)}..." (${result.length} chars)` : `"${result}"`;
+        } else if (typeof result === 'number' || typeof result === 'boolean') {
+          resultText = String(result);
+        } else if (Array.isArray(result)) {
+          resultText = `Array with ${result.length} items`;
+        } else if (typeof result === 'object') {
+          const keys = Object.keys(result);
+          resultText = `Object with ${keys.length} keys: ${keys.slice(0, 5).join(', ')}${keys.length > 5 ? '...' : ''}`;
+        } else {
+          resultText = String(result);
+        }
+
         return {
           content: [
             {
               type: 'text',
-              text: `JavaScript result:\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``,
+              text: `Executed JavaScript → ${resultText}`,
             },
           ],
         };
       }
 
       case 'claude_lens/go_back': {
+        console.error(`[claude_lens/go_back] Navigating back...`);
         await bridge.goBack();
+        console.error(`[claude_lens/go_back] Done`);
         return {
           content: [{ type: 'text', text: 'Navigated back in history' }],
         };
       }
 
       case 'claude_lens/go_forward': {
+        console.error(`[claude_lens/go_forward] Navigating forward...`);
         await bridge.goForward();
+        console.error(`[claude_lens/go_forward] Done`);
         return {
           content: [{ type: 'text', text: 'Navigated forward in history' }],
         };
@@ -892,7 +981,9 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
 
       case 'claude_lens/handle_dialog': {
         const { action } = DialogHandlerSchema.parse(args);
+        console.error(`[claude_lens/handle_dialog] Setting handler to: ${action}`);
         await bridge.setDialogHandler(action);
+        console.error(`[claude_lens/handle_dialog] Done`);
         return {
           content: [
             {
@@ -911,6 +1002,7 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`[${name}] Failed after ${getDuration()}ms: ${message}`);
     // Never throw - return error in MCP format
     return {
       content: [{ type: 'text', text: `Error: ${message}` }],

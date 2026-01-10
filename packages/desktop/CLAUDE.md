@@ -1,24 +1,63 @@
 # Claude Lens Desktop - Claude Code Integration
 
-You are running inside Claude Lens Desktop with an embedded browser. You have tools to interact with the browser directly.
+You are running inside Claude Lens Desktop with Playwright-powered browser automation.
 
-## CRITICAL: Screenshot and Browser Tools
+## CRITICAL: Use `claude_lens/*` Tools (NOT `browser_*` Tools)
 
-**DO NOT use Playwright or browser_snapshot** - they won't work here.
+You may have other Playwright MCP tools available (like `browser_navigate`, `browser_click`, `browser_take_screenshot`, etc.).
 
-**Use these methods instead:**
+**DO NOT use those generic `browser_*` tools for this project.** They connect to a different browser instance and won't work with Claude Lens.
 
-### Method 1: MCP Tools (preferred)
-If `claude_lens/*` tools are available, use them:
-- `claude_lens/screenshot` - Take a screenshot
-- `claude_lens/inspect_element` - Inspect a DOM element
-- `claude_lens/highlight_element` - Highlight an element
-- `claude_lens/get_console` - Get console logs
-- `claude_lens/navigate` - Navigate to a URL
-- `claude_lens/reload` - Reload the page after making code changes
+**ALWAYS use `claude_lens/*` tools** - they are specifically designed for the Claude Lens embedded browser.
 
-### Method 2: HTTP API (fallback)
-If MCP tools aren't available, use curl to call the local HTTP API:
+## Browser Tools (Claude Lens)
+
+Use the `claude_lens/*` MCP tools for browser automation:
+
+### Core Tools
+| Tool | Purpose |
+|------|---------|
+| `claude_lens/screenshot` | Take a screenshot (do this FIRST to see the page) |
+| `claude_lens/browser_snapshot` | Get accessibility tree for fast element discovery |
+| `claude_lens/click` | Click an element |
+| `claude_lens/fill` | Fill input field (clears first) |
+| `claude_lens/type` | Type text character by character |
+| `claude_lens/navigate` | Navigate to a URL |
+| `claude_lens/reload` | Reload page after code changes |
+
+### Advanced Automation
+| Tool | Purpose |
+|------|---------|
+| `claude_lens/hover` | Hover over element (trigger hover states) |
+| `claude_lens/select_option` | Select dropdown option |
+| `claude_lens/press_key` | Press keyboard key (Enter, Tab, Escape) |
+| `claude_lens/drag_and_drop` | Drag from source to target |
+| `claude_lens/scroll` | Scroll page or element |
+| `claude_lens/wait_for` | Wait for element to appear |
+| `claude_lens/wait_for_response` | Wait for network response |
+
+### Element Inspection
+| Tool | Purpose |
+|------|---------|
+| `claude_lens/inspect_element` | Get element details |
+| `claude_lens/highlight_element` | Highlight an element |
+| `claude_lens/get_text` | Get element text content |
+| `claude_lens/get_attribute` | Get element attribute |
+| `claude_lens/is_visible` | Check if element is visible |
+| `claude_lens/is_enabled` | Check if element is enabled |
+| `claude_lens/get_console` | Get browser console logs |
+
+### Navigation & Dialogs
+| Tool | Purpose |
+|------|---------|
+| `claude_lens/go_back` | Browser back button |
+| `claude_lens/go_forward` | Browser forward button |
+| `claude_lens/handle_dialog` | Accept or dismiss alert/confirm dialogs |
+| `claude_lens/evaluate` | Execute custom JavaScript |
+
+## HTTP API (Fallback)
+
+If MCP tools aren't available, use curl to call the local HTTP API on port 9333:
 
 ```bash
 # Take a screenshot (returns base64 PNG)
@@ -30,24 +69,30 @@ curl -s http://localhost:9333/state
 # Get console logs
 curl -s http://localhost:9333/console -X POST -d '{"level":"error","limit":10}'
 
-# Inspect an element
-curl -s http://localhost:9333/inspect -X POST -d '{"selector":"#myButton"}'
+# Fill an input
+curl -s http://localhost:9333/fill -X POST -d '{"selector":"#email","value":"test@example.com"}'
 
-# Highlight an element
-curl -s http://localhost:9333/highlight -X POST -d '{"selector":"#myButton","color":"#3b82f6"}'
+# Click an element
+curl -s http://localhost:9333/click -X POST -d '{"selector":"#submit-btn"}'
 
 # Navigate to URL
 curl -s http://localhost:9333/navigate -X POST -d '{"url":"http://localhost:3000"}'
 ```
 
-## Checking What's Available
+## CSS Selectors
 
-Run this to check if the Bridge server is responding:
-```bash
-curl -s http://localhost:9333/state
-```
+Use **standard CSS selectors**:
+- `#submit-btn` (ID)
+- `.btn-primary` (class)
+- `[data-testid="submit"]` (attribute)
+- `button[type="submit"]` (tag + attribute)
 
-If it returns `{"connected":true,...}`, the HTTP API is available.
+## Workflow
+
+1. `claude_lens/screenshot` or `claude_lens/browser_snapshot` → See the page
+2. Make code changes
+3. `claude_lens/reload` → See updates
+4. `claude_lens/screenshot` → Verify
 
 ## Important Notes
 
@@ -56,12 +101,3 @@ If it returns `{"connected":true,...}`, the HTTP API is available.
 2. **Element context** - When the user clicks "Send to Claude" after selecting an element, you'll receive element details (selector, styles, position). Use this to make targeted changes.
 
 3. **Console logs** - Use the console endpoint to debug errors. Filter by level: "error", "warn", "log", or "all".
-
-## Typical Workflow
-
-1. User navigates to localhost:3000 (or similar) in the embedded browser
-2. User inspects/selects an element and clicks "Send to Claude"
-3. You receive element context with selector, styles, position
-4. If you need to see the page: take a screenshot via MCP tool or HTTP API
-5. ASK user where the source files are located
-6. Make the requested changes to the source files

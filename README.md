@@ -2,9 +2,12 @@
 
 > **Point at what's broken. Talk to Claude about it. Keep the conversation going.**
 
-Visual web development companion for Claude Code that bridges what you *see* with what Claude *knows*.
+Visual web development companion for Claude Code that bridges what you *see* with what Claude *knows* - this app will allow you to interact directly with any of your front end applications with two way communication between the app and claude code for seamless and more efficient development
 
-**Status:** Working Prototype | VS Code Extension (v0.1.0) | Desktop App (v0.2.0)
+**Status:** Working Prototype | VS Code Extension (v0.1.0) | Desktop App (v0.2.1)
+
+<img width="2560" height="1392" alt="image" src="https://github.com/user-attachments/assets/1fa6ee4d-84f8-477b-8906-c798a101f688" />
+
 
 ---
 
@@ -169,12 +172,14 @@ Add to `~/.claude/settings.json`:
 
 ## Features
 
-### Desktop App (v0.1.5)
+### Desktop App (v0.2.1)
 
 | Feature | Description |
 |---------|-------------|
 | **Real Embedded Browser** | Full BrowserView - not screenshots, real browser interaction |
+| **Playwright Automation** | 25+ tools: click, fill, type, hover, drag, scroll, keyboard |
 | **Integrated Claude Terminal** | Claude Code runs inside the app via PTY |
+| **Dev Server Integration** | Auto-starts npm/pnpm dev with progress timer |
 | **Hover Tooltips** | See element selectors as you hover |
 | **One-Click to Claude** | Click element → instantly sent to Claude conversation |
 | **Console Drawer** | Live console errors/warnings with filtering |
@@ -201,28 +206,49 @@ Add to `~/.claude/settings.json`:
 | **Localhost Security** | Only allows local development URLs |
 | **Secret Redaction** | Automatically redacts API keys, tokens, credentials |
 
-### MCP Tools
+### MCP Tools (25+ Playwright-Powered)
 
+#### Core Tools
 | Tool | Description |
 |------|-------------|
-| `claude_lens_inspect_element` | Get element info from last click or by selector |
-| `claude_lens_highlight_element` | Highlight element in browser (color, duration) |
-| `claude_lens_navigate` | Navigate to URL (localhost only, security) |
-| `claude_lens_get_console` | Get console messages (filter by level) |
-| `claude_lens_screenshot` | Capture viewport or specific element |
+| `claude_lens/screenshot` | Capture viewport or specific element |
+| `claude_lens/browser_snapshot` | Get accessibility tree (compact, ~100 lines) |
+| `claude_lens/click` | Click elements by selector |
+| `claude_lens/fill` | Fill input fields (clears first) |
+| `claude_lens/type` | Type text character by character |
+| `claude_lens/navigate` | Navigate to URL (localhost only) |
+| `claude_lens/reload` | Reload page after code changes |
 
-### Roadmap
+#### Automation Tools (browser-use style) ✅ DONE
+| Tool | Description |
+|------|-------------|
+| `claude_lens/hover` | Hover over elements (trigger hover states) |
+| `claude_lens/select_option` | Select dropdown options |
+| `claude_lens/press_key` | Press keyboard keys (Enter, Tab, Escape) |
+| `claude_lens/drag_and_drop` | Drag from source to target |
+| `claude_lens/scroll` | Scroll page or element into view |
+| `claude_lens/wait_for` | Wait for element to appear |
+| `claude_lens/wait_for_response` | Wait for network response |
 
-#### Automation Tools (browser-use style)
+#### Element Inspection
+| Tool | Description |
+|------|-------------|
+| `claude_lens/inspect_element` | Get element details from click or selector |
+| `claude_lens/highlight_element` | Highlight element visually |
+| `claude_lens/get_text` | Get element text content |
+| `claude_lens/get_attribute` | Get element attribute value |
+| `claude_lens/is_visible` | Check if element is visible |
+| `claude_lens/is_enabled` | Check if element is enabled |
+| `claude_lens/is_checked` | Check if checkbox/radio is checked |
+| `claude_lens/get_console` | Get browser console logs |
 
-| Tool | Description | Status |
-|------|-------------|--------|
-| `claude_lens_click` | Claude clicks an element by selector | 🔜 Planned |
-| `claude_lens_type` | Claude types into input fields | 🔜 Planned |
-| `claude_lens_scroll` | Claude scrolls the page | 🔜 Planned |
-| `claude_lens_hover` | Claude hovers over elements | 🔜 Planned |
-| `claude_lens_wait_for` | Claude waits for element/condition | 🔜 Planned |
-| `claude_lens_select` | Claude selects dropdown options | 🔜 Planned |
+#### Navigation & Advanced
+| Tool | Description |
+|------|-------------|
+| `claude_lens/go_back` | Browser back button |
+| `claude_lens/go_forward` | Browser forward button |
+| `claude_lens/handle_dialog` | Accept or dismiss alert/confirm dialogs |
+| `claude_lens/evaluate` | Execute custom JavaScript |
 
 **Example workflow with automation:**
 ```
@@ -239,12 +265,13 @@ Claude: I'll test the login form now.
         The form is working correctly. Want me to test valid credentials too?
 ```
 
-#### Other Planned Features
+### Roadmap
 
 | Feature | Status | Description |
 |---------|--------|-------------|
 | React/Vue detection | ✅ Done | Map DOM elements to component source files |
-| Standalone app | ✅ Done | Electron desktop app (v0.1.5) |
+| Standalone app | ✅ Done | Electron desktop app |
+| Playwright automation | ✅ Done | 25+ browser automation tools |
 | Multi-element select | 🔜 Planned | "Make this look like that" workflow |
 | Visual diff mode | 🔜 Planned | Before/after comparison |
 | Network monitoring | 🔜 Planned | Failed requests auto-reported |
@@ -335,8 +362,9 @@ Cursor has an integrated browser. Here's how Claude Lens compares:
 | Live browser view | ✅ Real browser | ✅ Real browser | ⚠️ Screenshot stream |
 | User clicks to inspect | ✅ | ✅ | ✅ |
 | Hover tooltips | ✅ | ✅ | ❌ |
-| **AI clicks autonomously** | ✅ | 🔜 Planned | 🔜 Planned |
-| **AI fills forms** | ✅ | 🔜 Planned | 🔜 Planned |
+| **AI clicks autonomously** | ✅ | ✅ | ✅ |
+| **AI fills forms** | ✅ | ✅ | ✅ |
+| **AI keyboard/drag/scroll** | ? | ✅ | ✅ |
 | Console access | ✅ | ✅ | ✅ |
 | Framework detection | ? | ✅ React/Vue/Svelte/Angular | ✅ |
 | AI conversation context | ✅ Cursor AI | ✅ Claude Code | ✅ Claude Code |
@@ -345,8 +373,8 @@ Cursor has an integrated browser. Here's how Claude Lens compares:
 | Open source | ❌ | ✅ | ✅ |
 
 **Honest comparison:**
-- Cursor's browser has AI automation (clicking, typing) that we're still building
-- Claude Lens Desktop now has a real embedded browser (BrowserView), matching Cursor's approach
+- Claude Lens now has full Playwright-powered automation (25+ tools) matching Cursor's capabilities
+- Claude Lens Desktop has a real embedded browser (BrowserView), same approach as Cursor
 - Claude Lens is open source and designed for Claude Code's MCP ecosystem
 
 **The real difference:** Cursor's browser is proprietary and Cursor-only. Claude Lens is open, extensible, and Claude Code native.

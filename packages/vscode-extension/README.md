@@ -49,16 +49,23 @@ Then press F5 in VS Code to launch the Extension Development Host.
 | `claudeLens.autoLaunchBrowser` | boolean | true | Auto-launch Chrome on open |
 | `claudeLens.autoStreamConsole` | boolean | true | Stream console errors to Claude |
 
-## MCP Tools
+## MCP Tools (25+)
 
-When used with Claude Code, these tools become available:
+When used with Claude Code, 25+ Playwright-powered tools become available:
 
-- `claude_lens/inspect_element` - Get element details
-- `claude_lens/highlight_element` - Highlight elements visually
-- `claude_lens/screenshot` - Capture the viewport
-- `claude_lens/navigate` - Navigate to URL
-- `claude_lens/get_console` - Get console logs
-- `claude_lens/reload` - Reload the page
+**Core:** `screenshot`, `browser_snapshot`, `navigate`, `reload`
+
+**Form Interaction:** `click`, `fill`, `type`, `select_option`, `press_key`
+
+**Mouse:** `hover`, `drag_and_drop`, `scroll`
+
+**Waiting:** `wait_for`, `wait_for_response`
+
+**Inspection:** `inspect_element`, `highlight_element`, `get_text`, `get_attribute`, `is_visible`, `is_enabled`, `is_checked`
+
+**Navigation:** `go_back`, `go_forward`, `handle_dialog`, `evaluate`, `get_console`
+
+See [MCP-TOOLS.md](../../docs/api/MCP-TOOLS.md) for full documentation.
 
 ## Requirements
 

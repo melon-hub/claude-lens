@@ -10,8 +10,9 @@ import * as os from 'os';
 
 export class PtyManager {
   private ptyProcess: pty.IPty | null = null;
-  private dataCallbacks: Array<(data: string) => void> = [];
-  private exitCallbacks: Array<(code: number) => void> = [];
+  // Use single callback pattern to prevent accumulation on restart
+  private dataCallback: ((data: string) => void) | null = null;
+  private exitCallback: ((code: number) => void) | null = null;
 
   /**
    * Start Claude Code in a pty
@@ -37,13 +38,13 @@ export class PtyManager {
       },
     });
 
-    // Set up data forwarding
+    // Set up data forwarding (single callback pattern prevents accumulation)
     this.ptyProcess.onData((data) => {
-      this.dataCallbacks.forEach((cb) => cb(data));
+      this.dataCallback?.(data);
     });
 
     this.ptyProcess.onExit(({ exitCode }) => {
-      this.exitCallbacks.forEach((cb) => cb(exitCode));
+      this.exitCallback?.(exitCode);
       this.ptyProcess = null;
     });
 
@@ -82,16 +83,18 @@ export class PtyManager {
 
   /**
    * Register callback for data output
+   * Note: Replaces any existing callback (single callback pattern)
    */
   onData(callback: (data: string) => void): void {
-    this.dataCallbacks.push(callback);
+    this.dataCallback = callback;
   }
 
   /**
    * Register callback for process exit
+   * Note: Replaces any existing callback (single callback pattern)
    */
   onExit(callback: (code: number) => void): void {
-    this.exitCallbacks.push(callback);
+    this.exitCallback = callback;
   }
 
   /**
@@ -111,8 +114,8 @@ export class PtyManager {
       this.ptyProcess.kill();
       this.ptyProcess = null;
     }
-    this.dataCallbacks = [];
-    this.exitCallbacks = [];
+    this.dataCallback = null;
+    this.exitCallback = null;
   }
 
   /**

@@ -932,6 +932,9 @@ ipcMain.handle('browser:navigate', async (_event, url: string) => {
     // Inject Ctrl+Click capture support
     await injectCtrlClickCapture();
 
+    // Inject Freeze (F key) keyboard shortcut
+    await injectFreezeKeyboardShortcut();
+
     return { success: true };
   } catch (error) {
     return { success: false, error: String(error) };
@@ -1293,13 +1296,14 @@ ipcMain.handle('browser:enableInspect', async () => {
             interactionResult: interactionResult,
           };
 
-          // Highlight - different color for sequence mode
+          // Highlight - different color for sequence mode, auto-fade after 2s
           document.querySelectorAll('.claude-lens-highlight').forEach(h => h.remove());
           const highlight = document.createElement('div');
           highlight.className = 'claude-lens-highlight';
-          highlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #f59e0b;background:rgba(245,158,11,0.1);pointer-events:none;z-index:999999;';
+          highlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #f59e0b;background:rgba(245,158,11,0.1);pointer-events:none;z-index:999999;transition:opacity 0.3s;';
           document.body.appendChild(highlight);
-          // Don't auto-remove - keep visible while in inspect mode
+          // Auto-fade after 2 seconds so old highlights don't stack
+          setTimeout(() => { highlight.style.opacity = '0.3'; }, 2000);
 
           // Send back to Electron via console (we'll catch this)
           console.log('CLAUDE_LENS_ELEMENT:' + JSON.stringify(elementInfo));
@@ -1341,11 +1345,117 @@ ipcMain.handle('browser:disableInspect', async () => {
   }
 });
 
+// Freeze hover states (Phase 3) - keeps tooltips/menus visible
+ipcMain.handle('browser:freezeHover', async () => {
+  if (!browserView) return { success: false };
+
+  try {
+    const result = await browserView.webContents.executeJavaScript(`
+      (function() {
+        // Mark all currently hovered elements
+        const hoveredElements = document.querySelectorAll(':hover');
+        hoveredElements.forEach(el => {
+          el.classList.add('claude-lens-hover-frozen');
+        });
+
+        // Add CSS to keep hover styles and prevent pointer events from dismissing
+        if (!document.getElementById('claude-lens-freeze-styles')) {
+          const style = document.createElement('style');
+          style.id = 'claude-lens-freeze-styles';
+          style.textContent = \`
+            .claude-lens-hover-frozen,
+            .claude-lens-hover-frozen * {
+              pointer-events: none !important;
+            }
+            /* Force visibility of common hover patterns */
+            .claude-lens-hover-frozen .tooltip,
+            .claude-lens-hover-frozen .dropdown-menu,
+            .claude-lens-hover-frozen [data-show],
+            .claude-lens-hover-frozen .popover,
+            .claude-lens-hover-frozen [role="tooltip"],
+            .claude-lens-hover-frozen [class*="tooltip"],
+            .claude-lens-hover-frozen [class*="dropdown"],
+            .claude-lens-hover-frozen [class*="popover"],
+            .claude-lens-hover-frozen [class*="menu"] {
+              display: block !important;
+              visibility: visible !important;
+              opacity: 1 !important;
+            }
+          \`;
+          document.head.appendChild(style);
+        }
+
+        return { count: hoveredElements.length };
+      })()
+    `);
+
+    return { success: true, count: result?.count || 0 };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+});
+
+// Setup keyboard shortcut listener in BrowserView (F key for freeze)
+async function injectFreezeKeyboardShortcut() {
+  if (!browserView || !mainWindow) return;
+
+  try {
+    await browserView.webContents.executeJavaScript(`
+      (function() {
+        if (window.__claudeLensFreezeKeyHandler) return; // Already injected
+
+        window.__claudeLensFreezeKeyHandler = function(e) {
+          if (e.key === 'f' || e.key === 'F') {
+            // Don't trigger if typing in input
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+              return;
+            }
+            e.preventDefault();
+            console.log('CLAUDE_LENS_FREEZE_TOGGLE');
+          }
+        };
+
+        document.addEventListener('keydown', window.__claudeLensFreezeKeyHandler, true);
+      })()
+    `);
+  } catch {
+    // Ignore
+  }
+}
+
+// Unfreeze hover states
+ipcMain.handle('browser:unfreezeHover', async () => {
+  if (!browserView) return;
+
+  try {
+    await browserView.webContents.executeJavaScript(`
+      (function() {
+        // Remove frozen class from all elements
+        document.querySelectorAll('.claude-lens-hover-frozen').forEach(el => {
+          el.classList.remove('claude-lens-hover-frozen');
+        });
+
+        // Remove freeze styles
+        const style = document.getElementById('claude-lens-freeze-styles');
+        if (style) style.remove();
+      })()
+    `);
+  } catch {
+    // Ignore errors
+  }
+});
+
 // Set up BrowserView console message forwarding
 function setupBrowserViewMessaging() {
   if (!browserView || !mainWindow) return;
 
   browserView.webContents.on('console-message', (_event, level, message) => {
+    // Check for freeze toggle (F key pressed in BrowserView)
+    if (message === 'CLAUDE_LENS_FREEZE_TOGGLE') {
+      mainWindow?.webContents.send('freeze-toggle');
+      return;
+    }
+
     // Check if it's our element selection message (from Inspect Mode)
     if (message.startsWith('CLAUDE_LENS_ELEMENT:')) {
       try {

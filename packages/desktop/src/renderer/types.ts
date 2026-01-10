@@ -20,6 +20,21 @@ export interface ParentChainItem {
   description: string;
 }
 
+/** Form field state information */
+export interface FormState {
+  type: string;
+  value: string;
+  placeholder?: string;
+  required: boolean;
+  disabled: boolean;
+  readOnly: boolean;
+  validationState: 'valid' | 'invalid' | 'pending' | null;
+  validationMessage?: string;
+  checked?: boolean;
+  selectedIndex?: number;
+  options?: string[];
+}
+
 export interface ElementInfo {
   tagName: string;
   id?: string;
@@ -36,6 +51,10 @@ export interface ElementInfo {
   framework?: FrameworkInfo;
   /** Result of interaction attempt (for inspect sequence) */
   interactionResult?: string;
+  /** Form field state (for inputs, selects, textareas) */
+  formState?: FormState;
+  /** Whether element is in a loading state */
+  isLoading?: boolean;
 }
 
 /** Captured interaction in inspect sequence */
@@ -82,8 +101,11 @@ export interface ClaudeLensAPI {
     updateBounds: (width: number, drawerHeight?: number) => Promise<void>;
     enableInspect: () => Promise<{ success: boolean; error?: string }>;
     disableInspect: () => Promise<void>;
+    freezeHover: () => Promise<{ success: boolean; error?: string }>;
+    unfreezeHover: () => Promise<void>;
     onElementSelected: (callback: (element: ElementInfo) => void) => void;
     onConsoleMessage: (callback: (msg: { level: string; message: string; timestamp: number }) => void) => void;
+    onFreezeToggle: (callback: () => void) => void;
   };
   project: {
     open: (folderPath: string) => Promise<{ success: boolean; error?: string }>;

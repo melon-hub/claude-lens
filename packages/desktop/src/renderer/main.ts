@@ -102,6 +102,12 @@ const inspectSequenceList = document.getElementById('inspectSequenceList') as HT
 const clearSequenceBtn = document.getElementById('clearSequenceBtn') as HTMLButtonElement;
 const sendSequenceBtn = document.getElementById('sendSequenceBtn') as HTMLButtonElement;
 
+// Elements - Form State & Freeze Hover (Phase 3)
+const formStateInfo = document.getElementById('formStateInfo') as HTMLDivElement;
+const formStateContent = document.getElementById('formStateContent') as HTMLDivElement;
+const validationBadge = document.getElementById('validationBadge') as HTMLSpanElement;
+const freezeHoverBtn = document.getElementById('freezeHoverBtn') as HTMLButtonElement;
+
 // Elements - Resizers
 const resizer1 = document.getElementById('resizer1') as HTMLDivElement;
 const resizer2 = document.getElementById('resizer2') as HTMLDivElement;
@@ -136,6 +142,9 @@ let consoleDrawerOpen = false;
 
 // Inspect sequence state (Phase 2: multi-click capture)
 let inspectSequence: CapturedInteraction[] = [];
+
+// Freeze hover state (Phase 3)
+let hoverFrozen = false;
 
 // Console drawer height - 200px CSS + extra buffer for BrowserView bounds
 const DRAWER_HEIGHT = 235;
@@ -332,6 +341,11 @@ async function init() {
   // Listen for console messages from BrowserView
   window.claudeLens.browser.onConsoleMessage((msg) => {
     addConsoleMessage(msg);
+  });
+
+  // Listen for freeze toggle from F key in BrowserView
+  window.claudeLens.browser.onFreezeToggle(() => {
+    toggleFreezeHover();
   });
 
   // Listen for element selection from BrowserView
@@ -669,6 +683,9 @@ function updateContextPanel(element: ElementInfo) {
   } else {
     textInfo.classList.add('hidden');
   }
+
+  // FORM STATE section (Phase 3)
+  updateFormStateUI(element);
 }
 
 // Update element chips display
@@ -848,6 +865,84 @@ function clearInspectSequence() {
   updateInspectSequenceUI();
 }
 
+// Update form state UI (Phase 3)
+function updateFormStateUI(element: ElementInfo) {
+  const formState = element.formState;
+
+  if (!formState) {
+    formStateInfo.classList.add('hidden');
+    return;
+  }
+
+  formStateInfo.classList.remove('hidden');
+
+  // Set validation badge
+  validationBadge.className = 'validation-badge';
+  if (formState.disabled) {
+    validationBadge.textContent = 'Disabled';
+    validationBadge.classList.add('disabled');
+  } else if (formState.validationState === 'invalid') {
+    validationBadge.textContent = 'Invalid';
+    validationBadge.classList.add('invalid');
+  } else if (formState.validationState === 'valid') {
+    validationBadge.textContent = 'Valid';
+    validationBadge.classList.add('valid');
+  } else if (formState.required) {
+    validationBadge.textContent = 'Required';
+    validationBadge.classList.add('required');
+  } else {
+    validationBadge.textContent = '';
+  }
+
+  // Build form state rows
+  formStateContent.textContent = '';
+
+  const addRow = (label: string, value: string, isError = false) => {
+    const row = document.createElement('div');
+    row.className = 'form-state-row';
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'form-state-label';
+    labelEl.textContent = label;
+    row.appendChild(labelEl);
+
+    const valueEl = document.createElement('span');
+    valueEl.className = 'form-state-value';
+    if (isError) valueEl.classList.add('error');
+    valueEl.textContent = value;
+    row.appendChild(valueEl);
+
+    formStateContent.appendChild(row);
+  };
+
+  addRow('Type', formState.type);
+
+  if (formState.value) {
+    const displayValue = formState.type === 'password' ? '••••••••' : formState.value.slice(0, 30);
+    addRow('Value', displayValue + (formState.value.length > 30 ? '...' : ''));
+  }
+
+  if (formState.placeholder) {
+    addRow('Placeholder', formState.placeholder);
+  }
+
+  if (formState.checked !== undefined) {
+    addRow('Checked', formState.checked ? 'Yes' : 'No');
+  }
+
+  if (formState.options && formState.options.length > 0) {
+    addRow('Options', formState.options.slice(0, 5).join(', ') + (formState.options.length > 5 ? '...' : ''));
+  }
+
+  if (formState.readOnly) {
+    addRow('Read-only', 'Yes');
+  }
+
+  if (formState.validationMessage) {
+    addRow('Error', formState.validationMessage, true);
+  }
+}
+
 // Start Claude
 startClaudeBtn.addEventListener('click', async () => {
   if (claudeRunning) return;
@@ -942,6 +1037,43 @@ inspectBtn.addEventListener('click', async () => {
       setStatus(`Captured ${inspectSequence.length} interaction(s) - click "Send Sequence" to send`, true);
     } else {
       setStatus('Connected', true);
+    }
+  }
+});
+
+// Freeze hover toggle function (Phase 3)
+async function toggleFreezeHover() {
+  if (!browserLoaded) {
+    return;
+  }
+
+  hoverFrozen = !hoverFrozen;
+
+  if (hoverFrozen) {
+    await window.claudeLens.browser.freezeHover();
+    freezeHoverBtn.textContent = 'Unfreeze (F)';
+    freezeHoverBtn.classList.add('active');
+    setStatus('Hover frozen! Press F again to unfreeze', true);
+  } else {
+    await window.claudeLens.browser.unfreezeHover();
+    freezeHoverBtn.textContent = 'Freeze (F)';
+    freezeHoverBtn.classList.remove('active');
+    setStatus('Hover states unfrozen', true);
+  }
+}
+
+// Freeze hover button click
+freezeHoverBtn.addEventListener('click', toggleFreezeHover);
+
+// Keyboard shortcut: Press F to freeze/unfreeze hover (works while hovering!)
+document.addEventListener('keydown', (e) => {
+  // Only trigger if F key and not typing in an input
+  if (e.key === 'f' || e.key === 'F') {
+    const activeEl = document.activeElement;
+    const isTyping = activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA';
+    if (!isTyping && browserLoaded) {
+      e.preventDefault();
+      toggleFreezeHover();
     }
   }
 });

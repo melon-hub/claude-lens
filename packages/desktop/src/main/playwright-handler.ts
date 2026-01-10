@@ -159,9 +159,65 @@ export function createPlaywrightBridgeHandler(
               : window.__claudeLensLastElement;
             if (!el) return null;
 
+            // Check if element is in a loading state
+            function isLoadingState(element) {
+              const classes = Array.from(element.classList);
+              const loadingClasses = ['loading', 'spinner', 'skeleton', 'shimmer', 'pulse', 'loader'];
+              const hasLoadingClass = classes.some(c =>
+                loadingClasses.some(lc => c.toLowerCase().includes(lc))
+              );
+              const ariaBusy = element.getAttribute('aria-busy') === 'true';
+              const hasSpinnerChild = !!element.querySelector('.spinner, .loading, .loader, [aria-busy="true"]');
+
+              return hasLoadingClass || ariaBusy || hasSpinnerChild;
+            }
+
+            // Get form field state
+            function getFormState(element) {
+              const tag = element.tagName.toLowerCase();
+              if (!['input', 'select', 'textarea'].includes(tag)) return null;
+
+              const formState = {
+                type: element.type || tag,
+                value: element.value || '',
+                placeholder: element.placeholder || undefined,
+                required: element.required || false,
+                disabled: element.disabled || false,
+                readOnly: element.readOnly || false,
+                validationState: null,
+                validationMessage: undefined,
+              };
+
+              // Check validation state
+              if (element.validity) {
+                if (element.validity.valid) {
+                  formState.validationState = 'valid';
+                } else if (element.validationMessage) {
+                  formState.validationState = 'invalid';
+                  formState.validationMessage = element.validationMessage;
+                }
+              }
+
+              // Checkbox/radio specific
+              if (element.type === 'checkbox' || element.type === 'radio') {
+                formState.checked = element.checked;
+              }
+
+              // Select specific
+              if (tag === 'select') {
+                formState.selectedIndex = element.selectedIndex;
+                formState.options = Array.from(element.options).slice(0, 10).map(o => o.text);
+              }
+
+              return formState;
+            }
+
             // Helper to generate human-readable description for an element
             function describeElement(element) {
               const tag = element.tagName.toLowerCase();
+
+              // Check for loading state first
+              const loading = isLoadingState(element);
 
               // Check for common semantic roles/landmarks
               const role = element.getAttribute('role');
@@ -262,6 +318,11 @@ export function createPlaywrightBridgeHandler(
                 description = description + ' (#' + element.id + ')';
               } else if (dataTestId) {
                 description = description + ' [' + dataTestId + ']';
+              }
+
+              // Prefix with Loading: if in loading state
+              if (loading) {
+                description = 'Loading: ' + description;
               }
 
               return description;
@@ -344,6 +405,8 @@ export function createPlaywrightBridgeHandler(
               siblingCount: siblingCount,
               childCount: el.childElementCount,
               description: describeElement(el),
+              formState: getFormState(el),
+              isLoading: isLoadingState(el),
             };
           })()
         `;
@@ -374,9 +437,65 @@ export function createPlaywrightBridgeHandler(
             // Store for later reference
             window.__claudeLensLastElement = el;
 
+            // Check if element is in a loading state
+            function isLoadingState(element) {
+              const classes = Array.from(element.classList);
+              const loadingClasses = ['loading', 'spinner', 'skeleton', 'shimmer', 'pulse', 'loader'];
+              const hasLoadingClass = classes.some(c =>
+                loadingClasses.some(lc => c.toLowerCase().includes(lc))
+              );
+              const ariaBusy = element.getAttribute('aria-busy') === 'true';
+              const hasSpinnerChild = !!element.querySelector('.spinner, .loading, .loader, [aria-busy="true"]');
+
+              return hasLoadingClass || ariaBusy || hasSpinnerChild;
+            }
+
+            // Get form field state
+            function getFormState(element) {
+              const tag = element.tagName.toLowerCase();
+              if (!['input', 'select', 'textarea'].includes(tag)) return null;
+
+              const formState = {
+                type: element.type || tag,
+                value: element.value || '',
+                placeholder: element.placeholder || undefined,
+                required: element.required || false,
+                disabled: element.disabled || false,
+                readOnly: element.readOnly || false,
+                validationState: null,
+                validationMessage: undefined,
+              };
+
+              // Check validation state
+              if (element.validity) {
+                if (element.validity.valid) {
+                  formState.validationState = 'valid';
+                } else if (element.validationMessage) {
+                  formState.validationState = 'invalid';
+                  formState.validationMessage = element.validationMessage;
+                }
+              }
+
+              // Checkbox/radio specific
+              if (element.type === 'checkbox' || element.type === 'radio') {
+                formState.checked = element.checked;
+              }
+
+              // Select specific
+              if (tag === 'select') {
+                formState.selectedIndex = element.selectedIndex;
+                formState.options = Array.from(element.options).slice(0, 10).map(o => o.text);
+              }
+
+              return formState;
+            }
+
             // Helper to generate human-readable description for an element
             function describeElement(element) {
               const tag = element.tagName.toLowerCase();
+
+              // Check for loading state first
+              const loading = isLoadingState(element);
 
               // Check for common semantic roles/landmarks
               const role = element.getAttribute('role');
@@ -479,6 +598,11 @@ export function createPlaywrightBridgeHandler(
                 description = description + ' [' + dataTestId + ']';
               }
 
+              // Prefix with Loading: if in loading state
+              if (loading) {
+                description = 'Loading: ' + description;
+              }
+
               return description;
             }
 
@@ -559,6 +683,8 @@ export function createPlaywrightBridgeHandler(
               siblingCount: siblingCount,
               childCount: el.childElementCount,
               description: describeElement(el),
+              formState: getFormState(el),
+              isLoading: isLoadingState(el),
             };
           })()
         `;

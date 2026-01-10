@@ -948,3 +948,90 @@ body.drag-over::after {
 .sequence-result.blocked {
   color: var(--error);
 }
+
+/* Form State Styles (Phase 3) */
+.validation-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.validation-badge.valid {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.validation-badge.invalid {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.validation-badge.required {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.validation-badge.disabled {
+  background: rgba(107, 114, 128, 0.2);
+  color: #6b7280;
+}
+
+.form-state-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.form-state-row:last-child {
+  border-bottom: none;
+}
+
+.form-state-label {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.form-state-value {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.form-state-value.error {
+  color: var(--error);
+}
+
+.loading-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.loading-indicator::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Freeze Hover Button Active State */
+#freezeHoverBtn.active {
+  background: #f59e0b;
+  color: white;
+}

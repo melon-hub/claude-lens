@@ -39,11 +39,16 @@ contextBridge.exposeInMainWorld('claudeLens', {
     updateBounds: (width: number, drawerHeight?: number) => ipcRenderer.invoke('browser:updateBounds', width, drawerHeight || 0),
     enableInspect: () => ipcRenderer.invoke('browser:enableInspect'),
     disableInspect: () => ipcRenderer.invoke('browser:disableInspect'),
+    freezeHover: () => ipcRenderer.invoke('browser:freezeHover'),
+    unfreezeHover: () => ipcRenderer.invoke('browser:unfreezeHover'),
     onElementSelected: (callback: (element: unknown) => void) => {
       ipcRenderer.on('element-selected', (_event, element) => callback(element));
     },
     onConsoleMessage: (callback: (msg: { level: string; message: string; timestamp: number }) => void) => {
       ipcRenderer.on('console-message', (_event, msg) => callback(msg));
+    },
+    onFreezeToggle: (callback: () => void) => {
+      ipcRenderer.on('freeze-toggle', () => callback());
     },
   },
 

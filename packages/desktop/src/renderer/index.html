@@ -41,6 +41,7 @@
               <option value="mobile">Mobile (375px)</option>
             </select>
             <button id="inspectBtn" class="btn btn-small">Inspect</button>
+            <button id="freezeHoverBtn" class="btn btn-small" title="Press F to freeze hover states (tooltips, menus)">Freeze (F)</button>
             <button id="consoleToggleBtn" class="btn btn-small">Console</button>
           </div>
         </div>
@@ -154,6 +155,15 @@
             <div class="section-content">
               <span id="innerText" class="inner-text"></span>
             </div>
+          </div>
+
+          <!-- Form State Section (Phase 3) -->
+          <div id="formStateInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">FORM STATE</span>
+              <span id="validationBadge" class="validation-badge"></span>
+            </div>
+            <div class="section-content" id="formStateContent"></div>
           </div>
 
           <!-- Empty State -->

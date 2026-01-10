@@ -10,39 +10,12 @@ import type { ElementInfo, ProjectInfo } from './types';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { SearchAddon } from '@xterm/addon-search';
 import 'xterm/css/xterm.css';
 
-/**
- * Load terminal fonts using native FontFace API
- * Ensures fonts are ready before xterm renders to canvas
- */
-async function loadTerminalFonts(fontFamily: string): Promise<void> {
-  // Extract primary font name from the font stack
-  const primaryFont = (fontFamily.split(',')[0] ?? fontFamily).trim().replace(/['"]/g, '');
-
-  // Use document.fonts API to check/load fonts
-  if (document.fonts) {
-    try {
-      // Check if the font is already loaded
-      const fontLoaded = document.fonts.check(`13px "${primaryFont}"`);
-      if (fontLoaded) {
-        console.log('Font already loaded:', primaryFont);
-        return;
-      }
-
-      // Wait for fonts to be ready (with timeout)
-      await Promise.race([
-        document.fonts.ready,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Font load timeout')), 3000))
-      ]);
-
-      console.log('Fonts ready via document.fonts');
-    } catch (err) {
-      console.warn('Font loading warning:', err);
-      // Continue anyway - fallback fonts will work
-    }
-  }
-}
+// xterm-webfont handles font loading properly for canvas renderer
+// It ensures fonts are measured correctly before terminal renders
+import 'xterm-webfont';
 
 // Elements - Header
 const urlInput = document.getElementById('urlInput') as HTMLInputElement;
@@ -94,7 +67,7 @@ const sendPromptBtn = document.getElementById('sendPromptBtn') as HTMLButtonElem
 const resizer1 = document.getElementById('resizer1') as HTMLDivElement;
 const resizer2 = document.getElementById('resizer2') as HTMLDivElement;
 
-// Terminal setup
+// Terminal setup with optimized scrollback buffer
 const terminal = new Terminal({
   theme: {
     background: '#1e1e1e',
@@ -102,10 +75,11 @@ const terminal = new Terminal({
     cursor: '#cccccc',
     selectionBackground: '#264f78',
   },
-  fontFamily: "'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, 'Consolas', 'Courier New', 'Segoe UI Symbol', 'Segoe UI Emoji', 'Noto Color Emoji', 'Apple Color Emoji', monospace",
+  fontFamily: "'JetBrains Mono NF Bundled', 'JetBrainsMono Nerd Font', 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'SF Mono', Monaco, 'Consolas', monospace",
   fontSize: 13,
   cursorBlink: true,
   allowProposedApi: true,
+  scrollback: 5000, // Limit scrollback to control memory usage
 });
 
 const fitAddon = new FitAddon();
@@ -245,6 +219,13 @@ function showProjectModal(project: ProjectInfo) {
   document.body.appendChild(modal);
 }
 
+// Extend Terminal type to include xterm-webfont method
+declare module 'xterm' {
+  interface Terminal {
+    loadWebfontAndOpen(element: HTMLElement): Promise<void>;
+  }
+}
+
 // Initialize
 async function init() {
   // Display version
@@ -253,15 +234,29 @@ async function init() {
     versionEl.textContent = `v${window.claudeLens.version}`;
   }
 
-  // Wait for terminal fonts to load before opening
-  // This prevents rendering issues with custom fonts in canvas-based xterm
-  const fontFamily = terminal.options.fontFamily || 'monospace';
-  await loadTerminalFonts(fontFamily);
+  // Use xterm-webfont to properly load fonts before opening terminal
+  // This ensures the canvas renderer measures glyphs correctly
+  console.log('Loading terminal with webfont support...');
+  try {
+    await terminal.loadWebfontAndOpen(terminalEl);
+    console.log('Terminal opened with webfont:', terminal.options.fontFamily);
+  } catch (err) {
+    console.warn('Webfont loading failed, falling back to regular open:', err);
+    terminal.open(terminalEl);
+  }
 
-  // Now open terminal with fonts ready
-  terminal.open(terminalEl);
-  console.log('Terminal opened with fonts:', fontFamily);
+  // Load search addon for Ctrl+F functionality
+  const searchAddon = new SearchAddon();
+  terminal.loadAddon(searchAddon);
+
   fitAddon.fit();
+  console.log('Terminal ready with canvas renderer');
+
+  // Force a refresh after a short delay for any late-loading glyphs
+  setTimeout(() => {
+    terminal.refresh(0, terminal.rows - 1);
+    console.log('Terminal refreshed');
+  }, 300);
 
   // PTY data handler
   window.claudeLens.pty.onData((data) => {
@@ -333,6 +328,12 @@ async function init() {
     startClaudeBtn.textContent = 'Running';
     window.claudeLens.pty.resize(terminal.cols, terminal.rows);
     terminal.focus();
+
+    // Force a refresh to ensure icons render correctly with auto-started output
+    // This catches any data written before the 200ms font refresh timer
+    setTimeout(() => {
+      terminal.refresh(0, terminal.rows - 1);
+    }, 300);
   });
 
   // Handle server ready event

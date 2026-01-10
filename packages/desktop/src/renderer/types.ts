@@ -35,6 +35,59 @@ export interface FormState {
   options?: string[];
 }
 
+/** Overlay/modal context information (Phase 4) */
+export interface OverlayInfo {
+  type: 'modal' | 'dialog' | 'drawer' | 'popover' | 'tooltip' | 'dropdown';
+  isBackdrop: boolean;
+  triggeredBy?: string;
+  canDismiss: boolean;
+}
+
+/** Z-index stacking context (Phase 4) */
+export interface StackingInfo {
+  zIndex: string;
+  stackingContext: Array<{
+    description: string;
+    zIndex: string;
+    selector: string;
+  }>;
+}
+
+/** iFrame context information (Phase 4) */
+export interface IframeInfo {
+  src?: string;
+  name?: string;
+  sandboxed: boolean;
+  crossOrigin: boolean;
+}
+
+/** Shadow DOM context information (Phase 4) */
+export interface ShadowDOMInfo {
+  isInShadowDOM: boolean;
+  shadowHost?: string;
+  shadowRootMode?: 'open' | 'closed';
+  hasShadowRoot: boolean;
+  shadowChildCount?: number;
+}
+
+/** Scroll context information (Phase 4) */
+export interface ScrollInfo {
+  isScrollable: boolean;
+  scrollTop: number;
+  scrollLeft: number;
+  scrollHeight: number;
+  scrollWidth: number;
+  isInViewport: boolean;
+  visiblePercentage: number;
+}
+
+/** Toast notification captured (Phase 4) */
+export interface ToastCapture {
+  text: string;
+  type: 'error' | 'success' | 'warning' | 'info';
+  timestamp: number;
+}
+
 export interface ElementInfo {
   tagName: string;
   id?: string;
@@ -55,6 +108,16 @@ export interface ElementInfo {
   formState?: FormState;
   /** Whether element is in a loading state */
   isLoading?: boolean;
+  /** Overlay/modal context (Phase 4) */
+  overlay?: OverlayInfo;
+  /** Z-index stacking context (Phase 4) */
+  stacking?: StackingInfo;
+  /** iFrame context (Phase 4) */
+  iframe?: IframeInfo;
+  /** Shadow DOM context (Phase 4) */
+  shadowDOM?: ShadowDOMInfo;
+  /** Scroll context (Phase 4) */
+  scroll?: ScrollInfo;
 }
 
 /** Captured interaction in inspect sequence */
@@ -106,6 +169,7 @@ export interface ClaudeLensAPI {
     onElementSelected: (callback: (element: ElementInfo) => void) => void;
     onConsoleMessage: (callback: (msg: { level: string; message: string; timestamp: number }) => void) => void;
     onFreezeToggle: (callback: () => void) => void;
+    onToastCaptured: (callback: (toast: ToastCapture) => void) => void;
   };
   project: {
     open: (folderPath: string) => Promise<{ success: boolean; error?: string }>;

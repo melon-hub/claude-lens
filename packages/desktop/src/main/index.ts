@@ -935,6 +935,9 @@ ipcMain.handle('browser:navigate', async (_event, url: string) => {
     // Inject Freeze (F key) keyboard shortcut
     await injectFreezeKeyboardShortcut();
 
+    // Inject toast watcher (Phase 4)
+    await injectToastWatcher();
+
     return { success: true };
   } catch (error) {
     return { success: false, error: String(error) };
@@ -1423,6 +1426,70 @@ async function injectFreezeKeyboardShortcut() {
   }
 }
 
+/**
+ * Inject toast/notification watcher into BrowserView (Phase 4)
+ * Uses MutationObserver to capture transient toast notifications
+ */
+async function injectToastWatcher() {
+  if (!browserView) return;
+
+  try {
+    await browserView.webContents.executeJavaScript(`
+      (function() {
+        if (window.__claudeLensToastObserver) return; // Already watching
+
+        window.__claudeLensToastObserver = new MutationObserver((mutations) => {
+          for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+              if (node.nodeType === 1) { // Element node
+                const el = node;
+                const tag = el.tagName?.toLowerCase() || '';
+                const classes = (el.className || '').toLowerCase();
+                const role = el.getAttribute('role');
+
+                // Detect toast/notification patterns
+                const isToast =
+                  classes.includes('toast') ||
+                  classes.includes('notification') ||
+                  classes.includes('snackbar') ||
+                  classes.includes('alert') ||
+                  classes.includes('flash') ||
+                  role === 'alert' ||
+                  role === 'status' ||
+                  el.getAttribute('aria-live') === 'polite' ||
+                  el.getAttribute('aria-live') === 'assertive';
+
+                if (isToast) {
+                  // Determine toast type
+                  let type = 'info';
+                  if (classes.includes('error') || classes.includes('danger')) type = 'error';
+                  else if (classes.includes('success')) type = 'success';
+                  else if (classes.includes('warning') || classes.includes('warn')) type = 'warning';
+
+                  const text = el.textContent?.trim().slice(0, 200) || 'Toast notification';
+
+                  console.log('CLAUDE_LENS_TOAST:' + JSON.stringify({
+                    text: text,
+                    type: type,
+                    timestamp: Date.now()
+                  }));
+                }
+              }
+            }
+          }
+        });
+
+        window.__claudeLensToastObserver.observe(document.body, {
+          childList: true,
+          subtree: true
+        });
+      })()
+    `);
+  } catch {
+    // Ignore errors
+  }
+}
+
 // Unfreeze hover states
 ipcMain.handle('browser:unfreezeHover', async () => {
   if (!browserView) return;
@@ -1472,6 +1539,17 @@ function setupBrowserViewMessaging() {
       try {
         const elementInfo = JSON.parse(message.replace('CLAUDE_LENS_CTRL_ELEMENT:', ''));
         mainWindow?.webContents.send('element-selected', elementInfo);
+      } catch {
+        // Ignore parse errors
+      }
+      return;
+    }
+
+    // Check if it's a toast capture message (Phase 4)
+    if (message.startsWith('CLAUDE_LENS_TOAST:')) {
+      try {
+        const toastInfo = JSON.parse(message.replace('CLAUDE_LENS_TOAST:', ''));
+        mainWindow?.webContents.send('toast-captured', toastInfo);
       } catch {
         // Ignore parse errors
       }

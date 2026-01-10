@@ -6,7 +6,7 @@
  */
 
 import { Terminal } from 'xterm';
-import type { ElementInfo, ProjectInfo, CapturedInteraction } from './types';
+import type { ElementInfo, ProjectInfo, CapturedInteraction, ToastCapture } from './types';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -108,6 +108,26 @@ const formStateContent = document.getElementById('formStateContent') as HTMLDivE
 const validationBadge = document.getElementById('validationBadge') as HTMLSpanElement;
 const freezeHoverBtn = document.getElementById('freezeHoverBtn') as HTMLButtonElement;
 
+// Elements - Phase 4: Edge Cases
+const overlayInfo = document.getElementById('overlayInfo') as HTMLDivElement;
+const overlayContent = document.getElementById('overlayContent') as HTMLDivElement;
+const overlayTypeBadge = document.getElementById('overlayTypeBadge') as HTMLSpanElement;
+const stackingInfo = document.getElementById('stackingInfo') as HTMLDivElement;
+const stackingContent = document.getElementById('stackingContent') as HTMLDivElement;
+const zIndexBadge = document.getElementById('zIndexBadge') as HTMLSpanElement;
+const scrollInfo = document.getElementById('scrollInfo') as HTMLDivElement;
+const scrollContent = document.getElementById('scrollContent') as HTMLDivElement;
+const visibilityBadge = document.getElementById('visibilityBadge') as HTMLSpanElement;
+const iframeInfo = document.getElementById('iframeInfo') as HTMLDivElement;
+const iframeContent = document.getElementById('iframeContent') as HTMLDivElement;
+const shadowDOMInfo = document.getElementById('shadowDOMInfo') as HTMLDivElement;
+const shadowDOMContent = document.getElementById('shadowDOMContent') as HTMLDivElement;
+const toastCapturesInfo = document.getElementById('toastCapturesInfo') as HTMLDivElement;
+const toastCapturesList = document.getElementById('toastCapturesList') as HTMLDivElement;
+const toastCount = document.getElementById('toastCount') as HTMLSpanElement;
+const clearToastsBtn = document.getElementById('clearToastsBtn') as HTMLButtonElement;
+const sendToastsBtn = document.getElementById('sendToastsBtn') as HTMLButtonElement;
+
 // Elements - Resizers
 const resizer1 = document.getElementById('resizer1') as HTMLDivElement;
 const resizer2 = document.getElementById('resizer2') as HTMLDivElement;
@@ -145,6 +165,9 @@ let inspectSequence: CapturedInteraction[] = [];
 
 // Freeze hover state (Phase 3)
 let hoverFrozen = false;
+
+// Captured toasts state (Phase 4)
+let capturedToasts: ToastCapture[] = [];
 
 // Console drawer height - 200px CSS + extra buffer for BrowserView bounds
 const DRAWER_HEIGHT = 235;
@@ -346,6 +369,12 @@ async function init() {
   // Listen for freeze toggle from F key in BrowserView
   window.claudeLens.browser.onFreezeToggle(() => {
     toggleFreezeHover();
+  });
+
+  // Listen for toast captures (Phase 4)
+  window.claudeLens.browser.onToastCaptured((toast) => {
+    capturedToasts.push(toast);
+    updateToastCapturesUI();
   });
 
   // Listen for element selection from BrowserView
@@ -686,6 +715,9 @@ function updateContextPanel(element: ElementInfo) {
 
   // FORM STATE section (Phase 3)
   updateFormStateUI(element);
+
+  // Phase 4 sections (overlay, stacking, scroll, iframe, shadow DOM)
+  updatePhase4UI(element);
 }
 
 // Update element chips display
@@ -943,6 +975,250 @@ function updateFormStateUI(element: ElementInfo) {
   }
 }
 
+/**
+ * Helper to create a row with label and value (safe DOM construction)
+ */
+function createInfoRow(className: string, label: string, value: string, extraClass?: string): HTMLElement {
+  const row = document.createElement('div');
+  row.className = className;
+
+  const labelEl = document.createElement('span');
+  labelEl.className = className.replace('-row', '-label');
+  labelEl.textContent = label;
+  row.appendChild(labelEl);
+
+  const valueEl = document.createElement('span');
+  valueEl.className = className.replace('-row', '-value') + (extraClass ? ` ${extraClass}` : '');
+  valueEl.textContent = value;
+  row.appendChild(valueEl);
+
+  return row;
+}
+
+/**
+ * Update overlay/modal UI (Phase 4)
+ */
+function updateOverlayUI(element: ElementInfo) {
+  const overlay = element.overlay;
+
+  if (!overlay) {
+    overlayInfo.classList.add('hidden');
+    return;
+  }
+
+  overlayInfo.classList.remove('hidden');
+
+  // Set overlay type badge
+  overlayTypeBadge.className = `overlay-badge ${overlay.type}`;
+  overlayTypeBadge.textContent = overlay.type;
+
+  // Build overlay info rows
+  overlayContent.textContent = '';
+
+  if (overlay.isBackdrop) {
+    overlayContent.appendChild(createInfoRow('overlay-row', 'Is Backdrop', 'Yes'));
+  }
+  if (overlay.triggeredBy) {
+    overlayContent.appendChild(createInfoRow('overlay-row', 'Triggered By', overlay.triggeredBy));
+  }
+  overlayContent.appendChild(createInfoRow('overlay-row', 'Can Dismiss', overlay.canDismiss ? 'Yes' : 'No'));
+}
+
+/**
+ * Update z-index stacking UI (Phase 4)
+ */
+function updateStackingUI(element: ElementInfo) {
+  const stacking = element.stacking;
+
+  if (!stacking) {
+    stackingInfo.classList.add('hidden');
+    return;
+  }
+
+  stackingInfo.classList.remove('hidden');
+
+  // Set z-index badge
+  zIndexBadge.textContent = `z-index: ${stacking.zIndex}`;
+
+  // Build stacking context list
+  stackingContent.textContent = '';
+
+  if (stacking.stackingContext && stacking.stackingContext.length > 0) {
+    stacking.stackingContext.forEach((item, index) => {
+      const itemEl = document.createElement('div');
+      itemEl.className = `stacking-item${index === 0 ? ' top' : ''}`;
+
+      const zIndexSpan = document.createElement('span');
+      zIndexSpan.className = 'stacking-item-zindex';
+      zIndexSpan.textContent = `z:${item.zIndex}`;
+      itemEl.appendChild(zIndexSpan);
+
+      const descSpan = document.createElement('span');
+      descSpan.className = 'stacking-item-desc';
+      descSpan.textContent = item.description;
+      itemEl.appendChild(descSpan);
+
+      stackingContent.appendChild(itemEl);
+    });
+  }
+}
+
+/**
+ * Update scroll context UI (Phase 4)
+ */
+function updateScrollUI(element: ElementInfo) {
+  const scroll = element.scroll;
+
+  if (!scroll) {
+    scrollInfo.classList.add('hidden');
+    return;
+  }
+
+  scrollInfo.classList.remove('hidden');
+
+  // Set visibility badge
+  visibilityBadge.className = 'visibility-badge';
+  if (scroll.visiblePercentage === 100) {
+    visibilityBadge.textContent = '100% Visible';
+    visibilityBadge.classList.add('visible');
+  } else if (scroll.visiblePercentage > 0) {
+    visibilityBadge.textContent = `${scroll.visiblePercentage}% Visible`;
+    visibilityBadge.classList.add('partial');
+  } else {
+    visibilityBadge.textContent = 'Not Visible';
+    visibilityBadge.classList.add('hidden');
+  }
+
+  // Build scroll info rows
+  scrollContent.textContent = '';
+
+  scrollContent.appendChild(createInfoRow('scroll-row', 'In Viewport', scroll.isInViewport ? 'Yes' : 'No'));
+  if (scroll.isScrollable) {
+    scrollContent.appendChild(createInfoRow('scroll-row', 'Scrollable', 'Yes'));
+    scrollContent.appendChild(createInfoRow('scroll-row', 'Scroll Position', `${scroll.scrollLeft}px, ${scroll.scrollTop}px`));
+    scrollContent.appendChild(createInfoRow('scroll-row', 'Scroll Size', `${scroll.scrollWidth}×${scroll.scrollHeight}px`));
+  }
+}
+
+/**
+ * Update iframe context UI (Phase 4)
+ */
+function updateIframeUI(element: ElementInfo) {
+  const iframe = element.iframe;
+
+  if (!iframe) {
+    iframeInfo.classList.add('hidden');
+    return;
+  }
+
+  iframeInfo.classList.remove('hidden');
+  iframeContent.textContent = '';
+
+  if (iframe.crossOrigin) {
+    iframeContent.appendChild(createInfoRow('iframe-row', 'Cross-Origin', 'Yes (limited access)', 'context-warning cross-origin'));
+  } else {
+    if (iframe.src) {
+      const truncatedSrc = iframe.src.slice(0, 50) + (iframe.src.length > 50 ? '...' : '');
+      iframeContent.appendChild(createInfoRow('iframe-row', 'Source', truncatedSrc));
+    }
+    if (iframe.name) {
+      iframeContent.appendChild(createInfoRow('iframe-row', 'Name', iframe.name));
+    }
+    iframeContent.appendChild(createInfoRow('iframe-row', 'Sandboxed', iframe.sandboxed ? 'Yes' : 'No'));
+  }
+}
+
+/**
+ * Update shadow DOM UI (Phase 4)
+ */
+function updateShadowDOMUI(element: ElementInfo) {
+  const shadowDOM = element.shadowDOM;
+
+  if (!shadowDOM) {
+    shadowDOMInfo.classList.add('hidden');
+    return;
+  }
+
+  shadowDOMInfo.classList.remove('hidden');
+  shadowDOMContent.textContent = '';
+
+  if (shadowDOM.isInShadowDOM) {
+    shadowDOMContent.appendChild(createInfoRow('shadow-row', 'Inside Shadow DOM', 'Yes'));
+    if (shadowDOM.shadowHost) {
+      shadowDOMContent.appendChild(createInfoRow('shadow-row', 'Host Element', shadowDOM.shadowHost));
+    }
+  }
+
+  if (shadowDOM.hasShadowRoot) {
+    shadowDOMContent.appendChild(createInfoRow('shadow-row', 'Has Shadow Root', 'Yes'));
+    if (shadowDOM.shadowRootMode) {
+      shadowDOMContent.appendChild(createInfoRow('shadow-row', 'Mode', shadowDOM.shadowRootMode));
+    }
+    if (shadowDOM.shadowChildCount !== undefined) {
+      shadowDOMContent.appendChild(createInfoRow('shadow-row', 'Child Count', String(shadowDOM.shadowChildCount)));
+    }
+  }
+}
+
+/**
+ * Update toast captures UI (Phase 4)
+ */
+function updateToastCapturesUI() {
+  if (capturedToasts.length === 0) {
+    toastCapturesInfo.classList.add('hidden');
+    return;
+  }
+
+  toastCapturesInfo.classList.remove('hidden');
+  toastCount.textContent = String(capturedToasts.length);
+
+  toastCapturesList.textContent = '';
+
+  capturedToasts.forEach((toast) => {
+    const item = document.createElement('div');
+    item.className = 'toast-item';
+
+    const timeDiff = Math.round((Date.now() - toast.timestamp) / 1000);
+    const timeStr = timeDiff < 60 ? `${timeDiff}s ago` : `${Math.round(timeDiff / 60)}m ago`;
+
+    const typeBadge = document.createElement('span');
+    typeBadge.className = `toast-type-badge ${toast.type}`;
+    typeBadge.textContent = toast.type;
+    item.appendChild(typeBadge);
+
+    const textSpan = document.createElement('span');
+    textSpan.className = 'toast-text';
+    textSpan.textContent = toast.text;
+    item.appendChild(textSpan);
+
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'toast-time';
+    timeSpan.textContent = timeStr;
+    item.appendChild(timeSpan);
+
+    toastCapturesList.appendChild(item);
+  });
+}
+
+/**
+ * Clear toast captures
+ */
+function clearToastCaptures() {
+  capturedToasts = [];
+  updateToastCapturesUI();
+}
+
+/**
+ * Update all Phase 4 UI sections for an element
+ */
+function updatePhase4UI(element: ElementInfo) {
+  updateOverlayUI(element);
+  updateStackingUI(element);
+  updateScrollUI(element);
+  updateIframeUI(element);
+  updateShadowDOMUI(element);
+}
+
 // Start Claude
 startClaudeBtn.addEventListener('click', async () => {
   if (claudeRunning) return;
@@ -1159,6 +1435,56 @@ sendSequenceBtn.addEventListener('click', async () => {
     clearInspectSequence();
     terminal.focus();
     setStatus('Sequence sent to Claude', true);
+  } else {
+    alert('Failed to send to Claude');
+  }
+});
+
+// Toast capture clear button (Phase 4)
+clearToastsBtn.addEventListener('click', () => {
+  clearToastCaptures();
+  setStatus('Toasts cleared', true);
+});
+
+// Toast capture send button (Phase 4)
+sendToastsBtn.addEventListener('click', async () => {
+  if (!claudeRunning) {
+    alert('Start Claude first!');
+    return;
+  }
+
+  if (capturedToasts.length === 0) {
+    alert('No toasts captured yet.');
+    return;
+  }
+
+  // Get current page URL
+  const pageURL = await window.claudeLens.browser.getURL();
+
+  // Format toasts for Claude
+  let toastContext = `## Captured Toast Notifications (${capturedToasts.length} messages)\n\n`;
+  toastContext += `**Page:** ${pageURL || 'Unknown'}\n\n`;
+
+  for (const toast of capturedToasts) {
+    const time = new Date(toast.timestamp).toLocaleTimeString();
+    toastContext += `- **[${time}]** [${toast.type.toUpperCase()}] ${toast.text}\n`;
+  }
+
+  const toolHints = `---
+**Claude Lens Context**
+- These are toast notifications captured via MutationObserver
+- Toasts may indicate success/error states from user actions
+---
+
+`;
+
+  const fullPrompt = `${toolHints}Here are the captured toast notifications:\n\n${toastContext}`;
+  const result = await window.claudeLens.sendToClaude(fullPrompt, '');
+
+  if (result.success) {
+    clearToastCaptures();
+    terminal.focus();
+    setStatus('Toasts sent to Claude', true);
   } else {
     alert('Failed to send to Claude');
   }

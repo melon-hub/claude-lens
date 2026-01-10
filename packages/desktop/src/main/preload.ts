@@ -50,6 +50,9 @@ contextBridge.exposeInMainWorld('claudeLens', {
     onFreezeToggle: (callback: () => void) => {
       ipcRenderer.on('freeze-toggle', () => callback());
     },
+    onToastCaptured: (callback: (toast: { text: string; type: string; timestamp: number }) => void) => {
+      ipcRenderer.on('toast-captured', (_event, toast) => callback(toast));
+    },
   },
 
   // Project management APIs

@@ -262,7 +262,9 @@ document.head.appendChild(style);
 
 ---
 
-## Phase 4: Edge Cases
+## Phase 4: Edge Cases ✅ COMPLETE
+
+**Commit:** `[pending]` - "feat(desktop): Phase 4 UX - edge cases"
 
 **Goal:** Handle complex UI patterns that need special treatment.
 
@@ -439,13 +441,13 @@ const visiblePercentage = totalArea > 0 ? (visibleArea / totalArea) * 100 : 0;
 
 | File | Phase 1 | Phase 2 | Phase 3 | Phase 4 |
 |------|---------|---------|---------|---------|
-| `playwright-handler.ts` | ✅ | | 3.1, 3.2 | 4.1, 4.4, 4.5, 4.6 |
-| `renderer/main.ts` | ✅ | 2.1, 2.3 | 3.3 | 4.2 |
-| `renderer/index.html` | ✅ | 2.1 | 3.3 | |
-| `renderer/styles.css` | ✅ | 2.1 | 3.3 | |
-| `main/index.ts` | ✅ | 2.2 | 3.3 | 4.3 |
-| `core/browser/types.ts` | ✅ | | 3.1 | 4.1, 4.4, 4.5, 4.6 |
-| `renderer/types.ts` | ✅ | 2.1 | 3.1 | |
+| `playwright-handler.ts` | ✅ | ✅ | ✅ | ✅ |
+| `renderer/main.ts` | ✅ | ✅ | ✅ | ✅ |
+| `renderer/index.html` | ✅ | ✅ | ✅ | ✅ |
+| `renderer/styles.css` | ✅ | ✅ | ✅ | ✅ |
+| `main/index.ts` | ✅ | ✅ | ✅ | ✅ |
+| `main/preload.ts` | ✅ | ✅ | ✅ | ✅ |
+| `renderer/types.ts` | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -485,9 +487,9 @@ git status
 - [x] Select loading spinner, verify "Loading:" prefix
 - [x] Freeze hover on tooltip, verify it stays visible (F key)
 
-### Phase 4
-- [ ] Select modal, verify overlay info
-- [ ] Check z-index stacking display
-- [ ] Trigger toast, verify it's captured
-- [ ] Inspect element in iframe
-- [ ] Inspect shadow DOM component
+### Phase 4 ✅
+- [x] Select modal, verify overlay info
+- [x] Check z-index stacking display
+- [x] Trigger toast, verify it's captured
+- [x] Inspect element in iframe
+- [x] Inspect shadow DOM component

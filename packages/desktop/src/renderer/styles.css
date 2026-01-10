@@ -1035,3 +1035,204 @@ body.drag-over::after {
   background: #f59e0b;
   color: white;
 }
+
+/* Phase 4: Overlay/Modal Styles */
+.overlay-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: rgba(139, 92, 246, 0.2);
+  color: #8b5cf6;
+}
+
+.overlay-badge.modal { background: rgba(139, 92, 246, 0.2); color: #8b5cf6; }
+.overlay-badge.dialog { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+.overlay-badge.drawer { background: rgba(236, 72, 153, 0.2); color: #ec4899; }
+.overlay-badge.tooltip { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
+.overlay-badge.dropdown { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+.overlay-badge.popover { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+
+.overlay-row, .stacking-row, .scroll-row, .iframe-row, .shadow-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.overlay-row:last-child, .stacking-row:last-child, .scroll-row:last-child,
+.iframe-row:last-child, .shadow-row:last-child {
+  border-bottom: none;
+}
+
+.overlay-label, .stacking-label, .scroll-label, .iframe-label, .shadow-label {
+  color: var(--text-muted);
+}
+
+.overlay-value, .stacking-value, .scroll-value, .iframe-value, .shadow-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* Phase 4: Z-Index Badge */
+.zindex-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+  font-family: 'Cascadia Code', monospace;
+}
+
+/* Phase 4: Stacking Context List */
+.stacking-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.stacking-item:last-child {
+  border-bottom: none;
+}
+
+.stacking-item.top {
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin: 0 -8px;
+}
+
+.stacking-item-zindex {
+  font-family: 'Cascadia Code', monospace;
+  color: #3b82f6;
+  min-width: 50px;
+}
+
+.stacking-item-desc {
+  color: var(--text-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Phase 4: Visibility Badge */
+.visibility-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.visibility-badge.visible {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.visibility-badge.partial {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.visibility-badge.hidden {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+/* Phase 4: Toast Captures */
+.toast-count {
+  background: var(--info);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 20px;
+  text-align: center;
+}
+
+.toast-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.toast-item:last-child {
+  border-bottom: none;
+}
+
+.toast-type-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.toast-type-badge.error {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.toast-type-badge.success {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.toast-type-badge.warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.toast-type-badge.info {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+}
+
+.toast-text {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.toast-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.toast-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* Phase 4: iFrame/Shadow DOM warning badges */
+.context-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.context-warning.cross-origin {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}

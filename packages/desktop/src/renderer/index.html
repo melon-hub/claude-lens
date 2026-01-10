@@ -166,6 +166,62 @@
             <div class="section-content" id="formStateContent"></div>
           </div>
 
+          <!-- Overlay/Modal Info Section (Phase 4) -->
+          <div id="overlayInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">OVERLAY CONTEXT</span>
+              <span id="overlayTypeBadge" class="overlay-badge"></span>
+            </div>
+            <div class="section-content" id="overlayContent"></div>
+          </div>
+
+          <!-- Z-Index Stacking Section (Phase 4) -->
+          <div id="stackingInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">STACKING CONTEXT</span>
+              <span id="zIndexBadge" class="zindex-badge"></span>
+            </div>
+            <div class="section-content" id="stackingContent"></div>
+          </div>
+
+          <!-- Scroll Context Section (Phase 4) -->
+          <div id="scrollInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">SCROLL & VISIBILITY</span>
+              <span id="visibilityBadge" class="visibility-badge"></span>
+            </div>
+            <div class="section-content" id="scrollContent"></div>
+          </div>
+
+          <!-- iFrame Context Section (Phase 4) -->
+          <div id="iframeInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">IFRAME CONTEXT</span>
+            </div>
+            <div class="section-content" id="iframeContent"></div>
+          </div>
+
+          <!-- Shadow DOM Section (Phase 4) -->
+          <div id="shadowDOMInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">SHADOW DOM</span>
+            </div>
+            <div class="section-content" id="shadowDOMContent"></div>
+          </div>
+
+          <!-- Toast Captures Section (Phase 4) -->
+          <div id="toastCapturesInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">CAPTURED TOASTS</span>
+              <span id="toastCount" class="toast-count">0</span>
+            </div>
+            <div class="section-content" id="toastCapturesList"></div>
+            <div class="toast-actions">
+              <button id="clearToastsBtn" class="btn btn-small">Clear</button>
+              <button id="sendToastsBtn" class="btn btn-small btn-primary">Send to Claude</button>
+            </div>
+          </div>
+
           <!-- Empty State -->
           <div id="contextEmpty" class="context-empty">
             <div class="empty-icon">🎯</div>

@@ -183,14 +183,228 @@ export function createPlaywrightBridgeHandler(
               : window.__claudeLensLastElement;
             if (!el) return null;
 
+            // Check if element is in a loading state
+            function isLoadingState(element) {
+              const classes = Array.from(element.classList);
+              const loadingClasses = ['loading', 'spinner', 'skeleton', 'shimmer', 'pulse', 'loader'];
+              const hasLoadingClass = classes.some(c =>
+                loadingClasses.some(lc => c.toLowerCase().includes(lc))
+              );
+              const ariaBusy = element.getAttribute('aria-busy') === 'true';
+              const hasSpinnerChild = !!element.querySelector('.spinner, .loading, .loader, [aria-busy="true"]');
+
+              return hasLoadingClass || ariaBusy || hasSpinnerChild;
+            }
+
+            // Get form field state
+            function getFormState(element) {
+              const tag = element.tagName.toLowerCase();
+              if (!['input', 'select', 'textarea'].includes(tag)) return null;
+
+              const formState = {
+                type: element.type || tag,
+                value: element.value || '',
+                placeholder: element.placeholder || undefined,
+                required: element.required || false,
+                disabled: element.disabled || false,
+                readOnly: element.readOnly || false,
+                validationState: null,
+                validationMessage: undefined,
+              };
+
+              // Check validation state
+              if (element.validity) {
+                if (element.validity.valid) {
+                  formState.validationState = 'valid';
+                } else if (element.validationMessage) {
+                  formState.validationState = 'invalid';
+                  formState.validationMessage = element.validationMessage;
+                }
+              }
+
+              // Checkbox/radio specific
+              if (element.type === 'checkbox' || element.type === 'radio') {
+                formState.checked = element.checked;
+              }
+
+              // Select specific
+              if (tag === 'select') {
+                formState.selectedIndex = element.selectedIndex;
+                formState.options = Array.from(element.options).slice(0, 10).map(o => o.text);
+              }
+
+              return formState;
+            }
+
+            // Helper to generate human-readable description for an element
+            function describeElement(element) {
+              const tag = element.tagName.toLowerCase();
+
+              // Check for loading state first
+              const loading = isLoadingState(element);
+
+              // Check for common semantic roles/landmarks
+              const role = element.getAttribute('role');
+              const ariaLabel = element.getAttribute('aria-label');
+              const dataTestId = element.getAttribute('data-testid');
+
+              // Try to get a meaningful label
+              let label = '';
+              if (ariaLabel) {
+                label = ariaLabel;
+              } else if (element.textContent && element.textContent.trim().length < 30) {
+                label = element.textContent.trim().split('\\n')[0];
+              }
+
+              // Semantic element descriptions
+              const semanticMap = {
+                'nav': 'Navigation',
+                'header': 'Header',
+                'footer': 'Footer',
+                'main': 'Main content',
+                'aside': 'Sidebar',
+                'article': 'Article',
+                'section': 'Section',
+                'form': 'Form',
+                'button': 'Button',
+                'a': 'Link',
+                'ul': 'List',
+                'ol': 'Numbered list',
+                'table': 'Table',
+                'thead': 'Table header',
+                'tbody': 'Table body',
+                'tr': 'Table row',
+                'td': 'Table cell',
+                'th': 'Header cell',
+                'input': 'Input field',
+                'select': 'Dropdown',
+                'textarea': 'Text area',
+                'dialog': 'Dialog',
+                'menu': 'Menu',
+                'img': 'Image',
+                'video': 'Video',
+                'audio': 'Audio',
+              };
+
+              // Role-based descriptions
+              const roleMap = {
+                'navigation': 'Navigation',
+                'banner': 'Header banner',
+                'contentinfo': 'Footer info',
+                'main': 'Main content',
+                'complementary': 'Sidebar',
+                'dialog': 'Dialog',
+                'alertdialog': 'Alert dialog',
+                'menu': 'Menu',
+                'menubar': 'Menu bar',
+                'menuitem': 'Menu item',
+                'tab': 'Tab',
+                'tabpanel': 'Tab panel',
+                'tablist': 'Tab list',
+                'listbox': 'Dropdown list',
+                'option': 'Option',
+                'grid': 'Grid',
+                'row': 'Row',
+                'cell': 'Cell',
+                'button': 'Button',
+                'link': 'Link',
+                'search': 'Search',
+                'form': 'Form',
+              };
+
+              let description = '';
+
+              // Priority: role > semantic tag > generic
+              if (role && roleMap[role]) {
+                description = roleMap[role];
+              } else if (semanticMap[tag]) {
+                description = semanticMap[tag];
+              } else if (tag === 'div' || tag === 'span') {
+                // For generic containers, try to infer from classes
+                const classes = Array.from(element.classList);
+                const inferredRole = classes.find(c =>
+                  /nav|header|footer|sidebar|modal|dropdown|menu|card|panel|container|wrapper|content|body/i.test(c)
+                );
+                if (inferredRole) {
+                  description = inferredRole.replace(/[-_]/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
+                  description = description.charAt(0).toUpperCase() + description.slice(1).toLowerCase();
+                } else {
+                  description = 'Container';
+                }
+              } else {
+                description = tag;
+              }
+
+              // Add label/name if available
+              if (label && label !== description) {
+                description = description + ': "' + label.substring(0, 25) + (label.length > 25 ? '...' : '') + '"';
+              } else if (element.id) {
+                description = description + ' (#' + element.id + ')';
+              } else if (dataTestId) {
+                description = description + ' [' + dataTestId + ']';
+              }
+
+              // Prefix with Loading: if in loading state
+              if (loading) {
+                description = 'Loading: ' + description;
+              }
+
+              return description;
+            }
+
+            // Build unique selector for an element
+            function buildSelector(element) {
+              if (element.id) return '#' + element.id;
+
+              let selector = element.tagName.toLowerCase();
+              if (element.classList.length > 0) {
+                selector += '.' + Array.from(element.classList).slice(0, 2).join('.');
+              }
+
+              // Add nth-child if needed for uniqueness
+              const parent = element.parentElement;
+              if (parent) {
+                const siblings = Array.from(parent.children).filter(
+                  s => s.tagName === element.tagName
+                );
+                if (siblings.length > 1) {
+                  const index = siblings.indexOf(element) + 1;
+                  selector += ':nth-of-type(' + index + ')';
+                }
+              }
+
+              return selector;
+            }
+
+            // Build parent chain (up to 6 levels)
+            function buildParentChain(element, maxDepth = 6) {
+              const chain = [];
+              let current = element.parentElement;
+              let depth = 0;
+
+              while (current && current !== document.body && depth < maxDepth) {
+                chain.push({
+                  tagName: current.tagName.toLowerCase(),
+                  selector: buildSelector(current),
+                  description: describeElement(current),
+                });
+                current = current.parentElement;
+                depth++;
+              }
+
+              return chain;
+            }
+
             const rect = el.getBoundingClientRect();
             const styles = window.getComputedStyle(el);
+            const parent = el.parentElement;
+            const siblingCount = parent ? parent.children.length - 1 : 0;
 
             return {
               tagName: el.tagName.toLowerCase(),
               id: el.id || undefined,
               classes: Array.from(el.classList),
-              selector: sel || '',
+              selector: sel || buildSelector(el),
               xpath: '',
               attributes: Object.fromEntries(Array.from(el.attributes).map(a => [a.name, a.value])),
               computedStyles: {
@@ -211,9 +425,12 @@ export function createPlaywrightBridgeHandler(
                 width: Math.round(rect.width),
                 height: Math.round(rect.height),
               },
-              parentChain: [],
-              siblingCount: 0,
+              parentChain: buildParentChain(el),
+              siblingCount: siblingCount,
               childCount: el.childElementCount,
+              description: describeElement(el),
+              formState: getFormState(el),
+              isLoading: isLoadingState(el),
             };
           })()
         `;
@@ -244,14 +461,404 @@ export function createPlaywrightBridgeHandler(
             // Store for later reference
             window.__claudeLensLastElement = el;
 
+            // Check if element is in a loading state
+            function isLoadingState(element) {
+              const classes = Array.from(element.classList);
+              const loadingClasses = ['loading', 'spinner', 'skeleton', 'shimmer', 'pulse', 'loader'];
+              const hasLoadingClass = classes.some(c =>
+                loadingClasses.some(lc => c.toLowerCase().includes(lc))
+              );
+              const ariaBusy = element.getAttribute('aria-busy') === 'true';
+              const hasSpinnerChild = !!element.querySelector('.spinner, .loading, .loader, [aria-busy="true"]');
+
+              return hasLoadingClass || ariaBusy || hasSpinnerChild;
+            }
+
+            // Get form field state
+            function getFormState(element) {
+              const tag = element.tagName.toLowerCase();
+              if (!['input', 'select', 'textarea'].includes(tag)) return null;
+
+              const formState = {
+                type: element.type || tag,
+                value: element.value || '',
+                placeholder: element.placeholder || undefined,
+                required: element.required || false,
+                disabled: element.disabled || false,
+                readOnly: element.readOnly || false,
+                validationState: null,
+                validationMessage: undefined,
+              };
+
+              // Check validation state
+              if (element.validity) {
+                if (element.validity.valid) {
+                  formState.validationState = 'valid';
+                } else if (element.validationMessage) {
+                  formState.validationState = 'invalid';
+                  formState.validationMessage = element.validationMessage;
+                }
+              }
+
+              // Checkbox/radio specific
+              if (element.type === 'checkbox' || element.type === 'radio') {
+                formState.checked = element.checked;
+              }
+
+              // Select specific
+              if (tag === 'select') {
+                formState.selectedIndex = element.selectedIndex;
+                formState.options = Array.from(element.options).slice(0, 10).map(o => o.text);
+              }
+
+              return formState;
+            }
+
+            // Helper to generate human-readable description for an element
+            function describeElement(element) {
+              const tag = element.tagName.toLowerCase();
+
+              // Check for loading state first
+              const loading = isLoadingState(element);
+
+              // Check for common semantic roles/landmarks
+              const role = element.getAttribute('role');
+              const ariaLabel = element.getAttribute('aria-label');
+              const dataTestId = element.getAttribute('data-testid');
+
+              // Try to get a meaningful label
+              let label = '';
+              if (ariaLabel) {
+                label = ariaLabel;
+              } else if (element.textContent && element.textContent.trim().length < 30) {
+                label = element.textContent.trim().split('\\n')[0];
+              }
+
+              // Semantic element descriptions
+              const semanticMap = {
+                'nav': 'Navigation',
+                'header': 'Header',
+                'footer': 'Footer',
+                'main': 'Main content',
+                'aside': 'Sidebar',
+                'article': 'Article',
+                'section': 'Section',
+                'form': 'Form',
+                'button': 'Button',
+                'a': 'Link',
+                'ul': 'List',
+                'ol': 'Numbered list',
+                'table': 'Table',
+                'thead': 'Table header',
+                'tbody': 'Table body',
+                'tr': 'Table row',
+                'td': 'Table cell',
+                'th': 'Header cell',
+                'input': 'Input field',
+                'select': 'Dropdown',
+                'textarea': 'Text area',
+                'dialog': 'Dialog',
+                'menu': 'Menu',
+                'img': 'Image',
+                'video': 'Video',
+                'audio': 'Audio',
+              };
+
+              // Role-based descriptions
+              const roleMap = {
+                'navigation': 'Navigation',
+                'banner': 'Header banner',
+                'contentinfo': 'Footer info',
+                'main': 'Main content',
+                'complementary': 'Sidebar',
+                'dialog': 'Dialog',
+                'alertdialog': 'Alert dialog',
+                'menu': 'Menu',
+                'menubar': 'Menu bar',
+                'menuitem': 'Menu item',
+                'tab': 'Tab',
+                'tabpanel': 'Tab panel',
+                'tablist': 'Tab list',
+                'listbox': 'Dropdown list',
+                'option': 'Option',
+                'grid': 'Grid',
+                'row': 'Row',
+                'cell': 'Cell',
+                'button': 'Button',
+                'link': 'Link',
+                'search': 'Search',
+                'form': 'Form',
+              };
+
+              let description = '';
+
+              // Priority: role > semantic tag > generic
+              if (role && roleMap[role]) {
+                description = roleMap[role];
+              } else if (semanticMap[tag]) {
+                description = semanticMap[tag];
+              } else if (tag === 'div' || tag === 'span') {
+                // For generic containers, try to infer from classes
+                const classes = Array.from(element.classList);
+                const inferredRole = classes.find(c =>
+                  /nav|header|footer|sidebar|modal|dropdown|menu|card|panel|container|wrapper|content|body/i.test(c)
+                );
+                if (inferredRole) {
+                  description = inferredRole.replace(/[-_]/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
+                  description = description.charAt(0).toUpperCase() + description.slice(1).toLowerCase();
+                } else {
+                  description = 'Container';
+                }
+              } else {
+                description = tag;
+              }
+
+              // Add label/name if available
+              if (label && label !== description) {
+                description = description + ': "' + label.substring(0, 25) + (label.length > 25 ? '...' : '') + '"';
+              } else if (element.id) {
+                description = description + ' (#' + element.id + ')';
+              } else if (dataTestId) {
+                description = description + ' [' + dataTestId + ']';
+              }
+
+              // Prefix with Loading: if in loading state
+              if (loading) {
+                description = 'Loading: ' + description;
+              }
+
+              return description;
+            }
+
+            // Build unique selector for an element
+            function buildSelector(element) {
+              if (element.id) return '#' + element.id;
+
+              let selector = element.tagName.toLowerCase();
+              if (element.classList.length > 0) {
+                selector += '.' + Array.from(element.classList).slice(0, 2).join('.');
+              }
+
+              // Add nth-child if needed for uniqueness
+              const parent = element.parentElement;
+              if (parent) {
+                const siblings = Array.from(parent.children).filter(
+                  s => s.tagName === element.tagName
+                );
+                if (siblings.length > 1) {
+                  const index = siblings.indexOf(element) + 1;
+                  selector += ':nth-of-type(' + index + ')';
+                }
+              }
+
+              return selector;
+            }
+
+            // Build parent chain (up to 6 levels)
+            function buildParentChain(element, maxDepth = 6) {
+              const chain = [];
+              let current = element.parentElement;
+              let depth = 0;
+
+              while (current && current !== document.body && depth < maxDepth) {
+                chain.push({
+                  tagName: current.tagName.toLowerCase(),
+                  selector: buildSelector(current),
+                  description: describeElement(current),
+                });
+                current = current.parentElement;
+                depth++;
+              }
+
+              return chain;
+            }
+
+            // Phase 4: Detect overlay/modal context
+            function getOverlayInfo(element) {
+              const role = element.getAttribute('role');
+              const classes = Array.from(element.classList).join(' ').toLowerCase();
+              const styles = window.getComputedStyle(element);
+
+              // Check for modal/dialog
+              const isDialog = role === 'dialog' || role === 'alertdialog' || element.tagName === 'DIALOG';
+              const isModal = classes.includes('modal') || element.hasAttribute('aria-modal');
+              const isDrawer = classes.includes('drawer') || classes.includes('sidebar') || classes.includes('panel');
+              const isPopover = classes.includes('popover') || role === 'tooltip';
+              const isTooltip = classes.includes('tooltip') || role === 'tooltip';
+              const isDropdown = classes.includes('dropdown') || role === 'menu' || role === 'listbox';
+
+              // Check for backdrop
+              const isBackdrop = classes.includes('backdrop') || classes.includes('overlay') ||
+                (styles.position === 'fixed' && styles.inset === '0px');
+
+              if (!isDialog && !isModal && !isDrawer && !isPopover && !isTooltip && !isDropdown && !isBackdrop) {
+                return null;
+              }
+
+              let overlayType = 'modal';
+              if (isDialog) overlayType = 'dialog';
+              else if (isDrawer) overlayType = 'drawer';
+              else if (isPopover) overlayType = 'popover';
+              else if (isTooltip) overlayType = 'tooltip';
+              else if (isDropdown) overlayType = 'dropdown';
+
+              // Try to find trigger element
+              const ariaControls = element.getAttribute('aria-controls');
+              const triggeredBy = ariaControls ? '#' + ariaControls : undefined;
+
+              // Check if dismissible
+              const canDismiss = element.querySelector('[data-dismiss], .close, .btn-close') !== null ||
+                element.hasAttribute('data-dismiss') || isTooltip || isPopover;
+
+              return {
+                type: overlayType,
+                isBackdrop: isBackdrop,
+                triggeredBy: triggeredBy,
+                canDismiss: canDismiss
+              };
+            }
+
+            // Phase 4: Get z-index stacking context
+            function getStackingInfo(element) {
+              const styles = window.getComputedStyle(element);
+              const zIndex = styles.zIndex;
+
+              // Get elements at this point (stacking order)
+              const rect = element.getBoundingClientRect();
+              const centerX = rect.left + rect.width / 2;
+              const centerY = rect.top + rect.height / 2;
+              const elementsAtPoint = document.elementsFromPoint(centerX, centerY);
+              const stackingContext = elementsAtPoint.slice(0, 5).map(el => {
+                const elStyles = window.getComputedStyle(el);
+                return {
+                  description: describeElement(el),
+                  zIndex: elStyles.zIndex === 'auto' ? 'auto' : elStyles.zIndex,
+                  selector: buildSelector(el)
+                };
+              });
+
+              return {
+                zIndex: zIndex === 'auto' ? 'auto' : zIndex,
+                stackingContext: stackingContext
+              };
+            }
+
+            // Phase 4: Detect iframe context
+            function getIframeInfo() {
+              // Check if we're inside an iframe
+              const isInIframe = window !== window.top;
+
+              if (!isInIframe) {
+                return null;
+              }
+
+              try {
+                const frameElement = window.frameElement;
+                return {
+                  src: frameElement ? frameElement.getAttribute('src') : undefined,
+                  name: frameElement ? frameElement.getAttribute('name') : undefined,
+                  sandboxed: frameElement ? frameElement.hasAttribute('sandbox') : false,
+                  crossOrigin: false // Same origin if we can access this
+                };
+              } catch (e) {
+                // Cross-origin iframe - limited access
+                return {
+                  crossOrigin: true,
+                  sandboxed: false
+                };
+              }
+            }
+
+            // Phase 4: Detect shadow DOM context
+            function getShadowDOMInfo(element) {
+              // Check if element has a shadow root
+              const hasShadowRoot = !!element.shadowRoot;
+              let shadowChildCount = undefined;
+              let shadowRootMode = undefined;
+
+              if (hasShadowRoot) {
+                shadowChildCount = element.shadowRoot.childElementCount;
+                shadowRootMode = element.shadowRoot.mode;
+              }
+
+              // Check if element is inside a shadow DOM
+              let isInShadowDOM = false;
+              let shadowHost = undefined;
+              let node = element;
+
+              while (node) {
+                const root = node.getRootNode();
+                if (root instanceof ShadowRoot) {
+                  isInShadowDOM = true;
+                  shadowHost = describeElement(root.host);
+                  break;
+                }
+                if (root === document) break;
+                node = root.host;
+              }
+
+              if (!hasShadowRoot && !isInShadowDOM) {
+                return null;
+              }
+
+              return {
+                isInShadowDOM: isInShadowDOM,
+                shadowHost: shadowHost,
+                shadowRootMode: shadowRootMode,
+                hasShadowRoot: hasShadowRoot,
+                shadowChildCount: shadowChildCount
+              };
+            }
+
+            // Phase 4: Get scroll context
+            function getScrollInfo(element) {
+              const rect = element.getBoundingClientRect();
+              const viewport = {
+                width: window.innerWidth,
+                height: window.innerHeight
+              };
+
+              // Check if element is scrollable
+              const styles = window.getComputedStyle(element);
+              const isScrollable = styles.overflow === 'scroll' || styles.overflow === 'auto' ||
+                styles.overflowX === 'scroll' || styles.overflowX === 'auto' ||
+                styles.overflowY === 'scroll' || styles.overflowY === 'auto';
+
+              // Check if in viewport
+              const isInViewport = rect.top < viewport.height && rect.bottom > 0 &&
+                rect.left < viewport.width && rect.right > 0;
+
+              // Calculate visible percentage
+              let visiblePercentage = 0;
+              if (isInViewport && rect.width > 0 && rect.height > 0) {
+                const visibleWidth = Math.max(0, Math.min(rect.right, viewport.width) - Math.max(rect.left, 0));
+                const visibleHeight = Math.max(0, Math.min(rect.bottom, viewport.height) - Math.max(rect.top, 0));
+                const visibleArea = visibleWidth * visibleHeight;
+                const totalArea = rect.width * rect.height;
+                visiblePercentage = Math.round((visibleArea / totalArea) * 100);
+              }
+
+              return {
+                isScrollable: isScrollable,
+                scrollTop: Math.round(element.scrollTop),
+                scrollLeft: Math.round(element.scrollLeft),
+                scrollHeight: Math.round(element.scrollHeight),
+                scrollWidth: Math.round(element.scrollWidth),
+                isInViewport: isInViewport,
+                visiblePercentage: visiblePercentage
+              };
+            }
+
             const rect = el.getBoundingClientRect();
             const styles = window.getComputedStyle(el);
+            const parent = el.parentElement;
+            const siblingCount = parent ? parent.children.length - 1 : 0;
 
             return {
               tagName: el.tagName.toLowerCase(),
               id: el.id || undefined,
               classes: Array.from(el.classList),
-              selector: '',
+              selector: buildSelector(el),
               xpath: '',
               attributes: Object.fromEntries(Array.from(el.attributes).map(a => [a.name, a.value])),
               computedStyles: {
@@ -272,9 +879,17 @@ export function createPlaywrightBridgeHandler(
                 width: Math.round(rect.width),
                 height: Math.round(rect.height),
               },
-              parentChain: [],
-              siblingCount: 0,
+              parentChain: buildParentChain(el),
+              siblingCount: siblingCount,
               childCount: el.childElementCount,
+              description: describeElement(el),
+              formState: getFormState(el),
+              isLoading: isLoadingState(el),
+              overlay: getOverlayInfo(el),
+              stacking: getStackingInfo(el),
+              iframe: getIframeInfo(),
+              shadowDOM: getShadowDOMInfo(el),
+              scroll: getScrollInfo(el),
             };
           })()
         `;

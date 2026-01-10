@@ -20,6 +20,7 @@ import { PlaywrightAdapter, getCDPPort } from './playwright-adapter.js';
 import { analyzeProject, ProjectInfo, detectPackageManager, checkDependencyHealth } from './project-manager';
 import { DevServerManager } from './dev-server';
 import { StaticServer } from './static-server';
+import * as pty from 'node-pty';
 
 // Enable remote debugging for Playwright integration
 // Must be set before app is ready
@@ -863,6 +864,119 @@ ipcMain.handle('pty:resize', async (_event, cols: number, rows: number) => {
   ptyManager.resize(cols, rows);
 });
 
+/**
+ * Inject Ctrl+Click element capture listener into the browser.
+ * This allows users to quickly capture elements without toggling Inspect Mode.
+ */
+async function injectCtrlClickCapture() {
+  if (!browserView) return;
+
+  try {
+    await browserView.webContents.executeJavaScript(`
+      (function() {
+        // Skip if already injected
+        if (window.__claudeLensCtrlClickHandler) return;
+
+        window.__claudeLensCtrlClickHandler = function(e) {
+          // Only capture on Ctrl+Click (or Cmd+Click on Mac)
+          if (!e.ctrlKey && !e.metaKey) return;
+
+          e.preventDefault();
+          e.stopPropagation();
+
+          const el = e.target;
+
+          // Build selector
+          function getSelector(element) {
+            if (element.id) return '#' + element.id;
+            let selector = element.tagName.toLowerCase();
+            if (element.className && typeof element.className === 'string') {
+              const classes = element.className.trim().split(/\\s+/).filter(c => c);
+              if (classes.length) selector += '.' + classes.join('.');
+            }
+            const parent = element.parentElement;
+            if (parent) {
+              const siblings = Array.from(parent.children).filter(c => c.tagName === element.tagName);
+              if (siblings.length > 1) {
+                const index = siblings.indexOf(element) + 1;
+                selector += ':nth-child(' + index + ')';
+              }
+            }
+            return selector;
+          }
+
+          function getFullSelector(element) {
+            const parts = [];
+            let current = element;
+            while (current && current !== document.body) {
+              parts.unshift(getSelector(current));
+              if (current.id) break;
+              current = current.parentElement;
+            }
+            return parts.join(' > ');
+          }
+
+          // Get attributes
+          const attributes = {};
+          for (const attr of el.attributes) {
+            if (attr.name !== 'class' && attr.name !== 'id') {
+              attributes[attr.name] = attr.value;
+            }
+          }
+
+          // Get computed styles
+          const computed = window.getComputedStyle(el);
+          const styles = {
+            color: computed.color,
+            backgroundColor: computed.backgroundColor,
+            fontSize: computed.fontSize,
+            fontFamily: computed.fontFamily,
+            display: computed.display,
+            position: computed.position,
+          };
+
+          // Get position
+          const rect = el.getBoundingClientRect();
+          const position = {
+            x: rect.left,
+            y: rect.top,
+            width: rect.width,
+            height: rect.height,
+          };
+
+          const elementInfo = {
+            tagName: el.tagName.toLowerCase(),
+            id: el.id || undefined,
+            classes: el.className && typeof el.className === 'string'
+              ? el.className.trim().split(/\\s+/).filter(c => c)
+              : [],
+            selector: getFullSelector(el),
+            text: el.textContent?.slice(0, 100) || '',
+            attributes: attributes,
+            styles: styles,
+            position: position,
+          };
+
+          // Highlight briefly
+          document.querySelectorAll('.claude-lens-highlight').forEach(h => h.remove());
+          const highlight = document.createElement('div');
+          highlight.className = 'claude-lens-highlight';
+          highlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #10b981;background:rgba(16,185,129,0.1);pointer-events:none;z-index:999999;';
+          document.body.appendChild(highlight);
+          setTimeout(() => { highlight.style.opacity = '0'; setTimeout(() => highlight.remove(), 300); }, 2000);
+
+          // Send back to Electron
+          console.log('CLAUDE_LENS_CTRL_ELEMENT:' + JSON.stringify(elementInfo));
+        };
+
+        document.addEventListener('click', window.__claudeLensCtrlClickHandler, true);
+      })()
+    `);
+  } catch {
+    // Ignore injection errors
+  }
+}
+
 // Browser (embedded BrowserView) handlers
 ipcMain.handle('browser:navigate', async (_event, url: string) => {
   if (!mainWindow) return { success: false, error: 'Window not ready' };
@@ -885,6 +999,15 @@ ipcMain.handle('browser:navigate', async (_event, url: string) => {
 
     // Navigate to URL
     await browserView.webContents.loadURL(url);
+
+    // Inject Ctrl+Click capture support
+    await injectCtrlClickCapture();
+
+    // Inject Freeze (F key) keyboard shortcut
+    await injectFreezeKeyboardShortcut();
+
+    // Inject toast watcher (Phase 4)
+    await injectToastWatcher();
 
     return { success: true };
   } catch (error) {
@@ -1112,6 +1235,7 @@ ipcMain.handle('browser:getBounds', () => {
 });
 
 // Enable inspect mode - inject click listener and hover tracking into BrowserView
+// Phase 2: Stays in inspect mode until explicitly disabled, captures interaction sequence
 ipcMain.handle('browser:enableInspect', async () => {
   if (!browserView) return { success: false };
 
@@ -1119,7 +1243,7 @@ ipcMain.handle('browser:enableInspect', async () => {
     // First inject hover tracking
     await injectHoverTracking();
 
-    // Then inject click handler
+    // Then inject click handler - stays active for multiple clicks (sequence capture)
     await browserView.webContents.executeJavaScript(`
       (function() {
         // Remove existing listener if any
@@ -1128,8 +1252,10 @@ ipcMain.handle('browser:enableInspect', async () => {
         }
 
         window.__claudeLensInspectHandler = function(e) {
+          // Block ALL event handlers to prevent dropdowns from closing
           e.preventDefault();
           e.stopPropagation();
+          e.stopImmediatePropagation();
 
           const el = e.target;
 
@@ -1138,7 +1264,7 @@ ipcMain.handle('browser:enableInspect', async () => {
             if (element.id) return '#' + element.id;
             let selector = element.tagName.toLowerCase();
             if (element.className && typeof element.className === 'string') {
-              const classes = element.className.trim().split(/\\s+/).filter(c => c);
+              const classes = element.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'));
               if (classes.length) selector += '.' + classes.join('.');
             }
             const parent = element.parentElement;
@@ -1161,6 +1287,42 @@ ipcMain.handle('browser:enableInspect', async () => {
               current = current.parentElement;
             }
             return parts.join(' > ');
+          }
+
+          // Detect interaction type for result message
+          function detectInteractionResult(element) {
+            const role = element.getAttribute('role');
+            const tagName = element.tagName.toLowerCase();
+            const ariaExpanded = element.getAttribute('aria-expanded');
+            const ariaHaspopup = element.getAttribute('aria-haspopup');
+
+            // Check for menu items
+            if (role === 'menuitem' || role === 'option' || element.closest('[role="menu"]') || element.closest('[role="listbox"]')) {
+              return 'Menu item selected (action blocked)';
+            }
+
+            // Check for dropdown triggers
+            if (ariaHaspopup || ariaExpanded || element.hasAttribute('data-toggle') ||
+                element.classList.contains('dropdown-toggle') || element.closest('.dropdown-toggle')) {
+              return 'Dropdown trigger clicked (action blocked)';
+            }
+
+            // Check for buttons/links
+            if (tagName === 'button' || tagName === 'a' || role === 'button' || role === 'link') {
+              return 'Button/link clicked (action blocked)';
+            }
+
+            // Check for form elements
+            if (tagName === 'input' || tagName === 'select' || tagName === 'textarea') {
+              return 'Form element selected';
+            }
+
+            // Check for modal/dialog close buttons
+            if (element.closest('[role="dialog"]') || element.closest('.modal')) {
+              return 'Modal element clicked (action blocked)';
+            }
+
+            return 'Element captured';
           }
 
           // Get all attributes
@@ -1191,39 +1353,37 @@ ipcMain.handle('browser:enableInspect', async () => {
             height: rect.height,
           };
 
+          // Detect interaction result
+          const interactionResult = detectInteractionResult(el);
+
           const elementInfo = {
             tagName: el.tagName.toLowerCase(),
             id: el.id || undefined,
             classes: el.className && typeof el.className === 'string'
-              ? el.className.trim().split(/\\s+/).filter(c => c)
+              ? el.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'))
               : [],
             selector: getFullSelector(el),
             text: el.textContent?.slice(0, 100) || '',
             attributes: attributes,
             styles: styles,
             position: position,
+            interactionResult: interactionResult,
           };
 
-          // Highlight
+          // Highlight - different color for sequence mode, auto-fade after 2s
           document.querySelectorAll('.claude-lens-highlight').forEach(h => h.remove());
           const highlight = document.createElement('div');
           highlight.className = 'claude-lens-highlight';
-          highlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #3b82f6;background:rgba(59,130,246,0.1);pointer-events:none;z-index:999999;';
+          highlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #f59e0b;background:rgba(245,158,11,0.1);pointer-events:none;z-index:999999;transition:opacity 0.3s;';
           document.body.appendChild(highlight);
-          setTimeout(() => { highlight.style.opacity = '0'; setTimeout(() => highlight.remove(), 300); }, 3000);
+          // Auto-fade after 2 seconds so old highlights don't stack
+          setTimeout(() => { highlight.style.opacity = '0.3'; }, 2000);
 
           // Send back to Electron via console (we'll catch this)
           console.log('CLAUDE_LENS_ELEMENT:' + JSON.stringify(elementInfo));
 
-          // Remove listener after one click
-          document.removeEventListener('click', window.__claudeLensInspectHandler, true);
-          window.__claudeLensInspectHandler = null;
-          document.body.style.cursor = '';
-
-          // Clean up hover tracking
-          if (window.__claudeLensHoverCleanup) {
-            window.__claudeLensHoverCleanup();
-          }
+          // NOTE: DON'T remove listener - stay in inspect mode for sequence capture
+          // User must explicitly click "Inspect" again to disable
         };
 
         document.addEventListener('click', window.__claudeLensInspectHandler, true);
@@ -1259,16 +1419,208 @@ ipcMain.handle('browser:disableInspect', async () => {
   }
 });
 
+// Freeze hover states (Phase 3) - keeps tooltips/menus visible
+ipcMain.handle('browser:freezeHover', async () => {
+  if (!browserView) return { success: false };
+
+  try {
+    const result = await browserView.webContents.executeJavaScript(`
+      (function() {
+        // Mark all currently hovered elements
+        const hoveredElements = document.querySelectorAll(':hover');
+        hoveredElements.forEach(el => {
+          el.classList.add('claude-lens-hover-frozen');
+        });
+
+        // Add CSS to keep hover styles and prevent pointer events from dismissing
+        if (!document.getElementById('claude-lens-freeze-styles')) {
+          const style = document.createElement('style');
+          style.id = 'claude-lens-freeze-styles';
+          style.textContent = \`
+            .claude-lens-hover-frozen,
+            .claude-lens-hover-frozen * {
+              pointer-events: none !important;
+            }
+            /* Force visibility of common hover patterns */
+            .claude-lens-hover-frozen .tooltip,
+            .claude-lens-hover-frozen .dropdown-menu,
+            .claude-lens-hover-frozen [data-show],
+            .claude-lens-hover-frozen .popover,
+            .claude-lens-hover-frozen [role="tooltip"],
+            .claude-lens-hover-frozen [class*="tooltip"],
+            .claude-lens-hover-frozen [class*="dropdown"],
+            .claude-lens-hover-frozen [class*="popover"],
+            .claude-lens-hover-frozen [class*="menu"] {
+              display: block !important;
+              visibility: visible !important;
+              opacity: 1 !important;
+            }
+          \`;
+          document.head.appendChild(style);
+        }
+
+        return { count: hoveredElements.length };
+      })()
+    `);
+
+    return { success: true, count: result?.count || 0 };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+});
+
+// Setup keyboard shortcut listener in BrowserView (F key for freeze)
+async function injectFreezeKeyboardShortcut() {
+  if (!browserView || !mainWindow) return;
+
+  try {
+    await browserView.webContents.executeJavaScript(`
+      (function() {
+        if (window.__claudeLensFreezeKeyHandler) return; // Already injected
+
+        window.__claudeLensFreezeKeyHandler = function(e) {
+          if (e.key === 'f' || e.key === 'F') {
+            // Don't trigger if typing in input
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+              return;
+            }
+            e.preventDefault();
+            console.log('CLAUDE_LENS_FREEZE_TOGGLE');
+          }
+        };
+
+        document.addEventListener('keydown', window.__claudeLensFreezeKeyHandler, true);
+      })()
+    `);
+  } catch {
+    // Ignore
+  }
+}
+
+/**
+ * Inject toast/notification watcher into BrowserView (Phase 4)
+ * Uses MutationObserver to capture transient toast notifications
+ */
+async function injectToastWatcher() {
+  if (!browserView) return;
+
+  try {
+    await browserView.webContents.executeJavaScript(`
+      (function() {
+        if (window.__claudeLensToastObserver) return; // Already watching
+
+        window.__claudeLensToastObserver = new MutationObserver((mutations) => {
+          for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+              if (node.nodeType === 1) { // Element node
+                const el = node;
+                const tag = el.tagName?.toLowerCase() || '';
+                const classes = (el.className || '').toLowerCase();
+                const role = el.getAttribute('role');
+
+                // Detect toast/notification patterns
+                const isToast =
+                  classes.includes('toast') ||
+                  classes.includes('notification') ||
+                  classes.includes('snackbar') ||
+                  classes.includes('alert') ||
+                  classes.includes('flash') ||
+                  role === 'alert' ||
+                  role === 'status' ||
+                  el.getAttribute('aria-live') === 'polite' ||
+                  el.getAttribute('aria-live') === 'assertive';
+
+                if (isToast) {
+                  // Determine toast type
+                  let type = 'info';
+                  if (classes.includes('error') || classes.includes('danger')) type = 'error';
+                  else if (classes.includes('success')) type = 'success';
+                  else if (classes.includes('warning') || classes.includes('warn')) type = 'warning';
+
+                  const text = el.textContent?.trim().slice(0, 200) || 'Toast notification';
+
+                  console.log('CLAUDE_LENS_TOAST:' + JSON.stringify({
+                    text: text,
+                    type: type,
+                    timestamp: Date.now()
+                  }));
+                }
+              }
+            }
+          }
+        });
+
+        window.__claudeLensToastObserver.observe(document.body, {
+          childList: true,
+          subtree: true
+        });
+      })()
+    `);
+  } catch {
+    // Ignore errors
+  }
+}
+
+// Unfreeze hover states
+ipcMain.handle('browser:unfreezeHover', async () => {
+  if (!browserView) return;
+
+  try {
+    await browserView.webContents.executeJavaScript(`
+      (function() {
+        // Remove frozen class from all elements
+        document.querySelectorAll('.claude-lens-hover-frozen').forEach(el => {
+          el.classList.remove('claude-lens-hover-frozen');
+        });
+
+        // Remove freeze styles
+        const style = document.getElementById('claude-lens-freeze-styles');
+        if (style) style.remove();
+      })()
+    `);
+  } catch {
+    // Ignore errors
+  }
+});
+
 // Set up BrowserView console message forwarding
 function setupBrowserViewMessaging() {
   if (!browserView || !mainWindow) return;
 
   browserView.webContents.on('console-message', (_event, level, message) => {
-    // Check if it's our element selection message
+    // Check for freeze toggle (F key pressed in BrowserView)
+    if (message === 'CLAUDE_LENS_FREEZE_TOGGLE') {
+      mainWindow?.webContents.send('freeze-toggle');
+      return;
+    }
+
+    // Check if it's our element selection message (from Inspect Mode)
     if (message.startsWith('CLAUDE_LENS_ELEMENT:')) {
       try {
         const elementInfo = JSON.parse(message.replace('CLAUDE_LENS_ELEMENT:', ''));
         mainWindow?.webContents.send('element-selected', elementInfo);
+      } catch {
+        // Ignore parse errors
+      }
+      return;
+    }
+
+    // Check if it's a Ctrl+Click element capture message
+    if (message.startsWith('CLAUDE_LENS_CTRL_ELEMENT:')) {
+      try {
+        const elementInfo = JSON.parse(message.replace('CLAUDE_LENS_CTRL_ELEMENT:', ''));
+        mainWindow?.webContents.send('element-selected', elementInfo);
+      } catch {
+        // Ignore parse errors
+      }
+      return;
+    }
+
+    // Check if it's a toast capture message (Phase 4)
+    if (message.startsWith('CLAUDE_LENS_TOAST:')) {
+      try {
+        const toastInfo = JSON.parse(message.replace('CLAUDE_LENS_TOAST:', ''));
+        mainWindow?.webContents.send('toast-captured', toastInfo);
       } catch {
         // Ignore parse errors
       }

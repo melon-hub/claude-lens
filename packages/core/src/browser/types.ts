@@ -17,6 +17,15 @@ export interface FrameworkInfo {
   state?: Record<string, unknown>;
 }
 
+/**
+ * Parent element in the DOM hierarchy chain
+ */
+export interface ParentChainItem {
+  tagName: string;
+  selector: string;
+  description: string;
+}
+
 export interface ElementInfo {
   selector: string;
   xpath: string;
@@ -28,7 +37,10 @@ export interface ElementInfo {
   boundingBox: BoundingBox;
   innerText?: string;
   innerHTML?: string;
-  parentChain: string[];
+  /** Human-readable description of the element's purpose */
+  description?: string;
+  /** Parent elements with human-readable descriptions (immediate parent first) */
+  parentChain: ParentChainItem[];
   siblingCount: number;
   childCount: number;
   // Framework detection (React, Vue, Svelte, etc.)

@@ -32,7 +32,16 @@
         <div class="panel-header">
           <span>Browser</span>
           <div class="panel-header-actions">
+            <select id="viewportSelect" class="viewport-select" title="Device viewport">
+              <option value="full">Full Width</option>
+              <option value="desktop">Desktop (1280px)</option>
+              <option value="tablet-landscape">Tablet Landscape (1024px)</option>
+              <option value="tablet">Tablet (768px)</option>
+              <option value="mobile-large">Mobile L (425px)</option>
+              <option value="mobile">Mobile (375px)</option>
+            </select>
             <button id="inspectBtn" class="btn btn-small">Inspect</button>
+            <button id="freezeHoverBtn" class="btn btn-small" title="Press F to freeze hover states (tooltips, menus)">Freeze (F)</button>
             <button id="consoleToggleBtn" class="btn btn-small">Console</button>
           </div>
         </div>
@@ -67,6 +76,16 @@
           <span>Context</span>
         </div>
         <div class="panel-content" id="contextContent">
+          <!-- Element Description Section (Human-readable) -->
+          <div id="descriptionInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">WHAT IS THIS?</span>
+            </div>
+            <div class="section-content">
+              <span id="elementDescription" class="element-description"></span>
+            </div>
+          </div>
+
           <!-- Element Info Section -->
           <div id="elementInfo" class="context-section hidden">
             <div class="section-header">
@@ -86,10 +105,18 @@
             <div class="section-content" id="componentList"></div>
           </div>
 
+          <!-- Parent Hierarchy Section -->
+          <div id="hierarchyInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">WHERE IS IT?</span>
+            </div>
+            <div class="section-content" id="hierarchyList"></div>
+          </div>
+
           <!-- Path Section -->
           <div id="pathInfo" class="context-section hidden">
             <div class="section-header">
-              <span class="section-title">PATH</span>
+              <span class="section-title">SELECTOR</span>
             </div>
             <div class="section-content">
               <code id="elementPath" class="element-path"></code>
@@ -130,10 +157,89 @@
             </div>
           </div>
 
+          <!-- Form State Section (Phase 3) -->
+          <div id="formStateInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">FORM STATE</span>
+              <span id="validationBadge" class="validation-badge"></span>
+            </div>
+            <div class="section-content" id="formStateContent"></div>
+          </div>
+
+          <!-- Overlay/Modal Info Section (Phase 4) -->
+          <div id="overlayInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">OVERLAY CONTEXT</span>
+              <span id="overlayTypeBadge" class="overlay-badge"></span>
+            </div>
+            <div class="section-content" id="overlayContent"></div>
+          </div>
+
+          <!-- Z-Index Stacking Section (Phase 4) -->
+          <div id="stackingInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">STACKING CONTEXT</span>
+              <span id="zIndexBadge" class="zindex-badge"></span>
+            </div>
+            <div class="section-content" id="stackingContent"></div>
+          </div>
+
+          <!-- Scroll Context Section (Phase 4) -->
+          <div id="scrollInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">SCROLL & VISIBILITY</span>
+              <span id="visibilityBadge" class="visibility-badge"></span>
+            </div>
+            <div class="section-content" id="scrollContent"></div>
+          </div>
+
+          <!-- iFrame Context Section (Phase 4) -->
+          <div id="iframeInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">IFRAME CONTEXT</span>
+            </div>
+            <div class="section-content" id="iframeContent"></div>
+          </div>
+
+          <!-- Shadow DOM Section (Phase 4) -->
+          <div id="shadowDOMInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">SHADOW DOM</span>
+            </div>
+            <div class="section-content" id="shadowDOMContent"></div>
+          </div>
+
+          <!-- Toast Captures Section (Phase 4) -->
+          <div id="toastCapturesInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">CAPTURED TOASTS</span>
+              <span id="toastCount" class="toast-count">0</span>
+            </div>
+            <div class="section-content" id="toastCapturesList"></div>
+            <div class="toast-actions">
+              <button id="clearToastsBtn" class="btn btn-small">Clear</button>
+              <button id="sendToastsBtn" class="btn btn-small btn-primary">Send to Claude</button>
+            </div>
+          </div>
+
           <!-- Empty State -->
           <div id="contextEmpty" class="context-empty">
             <div class="empty-icon">🎯</div>
             <div class="empty-text">Click "Inspect" then select an element</div>
+            <div class="empty-hint">or Ctrl+Click any element for quick capture</div>
+          </div>
+
+          <!-- Inspect Sequence (shown during multi-click inspect) -->
+          <div id="inspectSequenceInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">CAPTURED INTERACTIONS</span>
+              <span id="sequenceCount" class="sequence-count">0</span>
+            </div>
+            <div class="section-content" id="inspectSequenceList"></div>
+            <div class="sequence-actions">
+              <button id="clearSequenceBtn" class="btn btn-small">Clear</button>
+              <button id="sendSequenceBtn" class="btn btn-small btn-primary">Send Sequence</button>
+            </div>
           </div>
         </div>
 

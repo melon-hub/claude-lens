@@ -8,13 +8,14 @@
 import * as pty from 'node-pty';
 import * as net from 'net';
 import * as os from 'os';
+import { CircularBuffer } from '@claude-lens/core';
 
 export interface DevServerState {
   process: pty.IPty;
   port: number;
   actualPort: number | null; // The port detected from server output
   ready: boolean;
-  output: string[];
+  output: CircularBuffer<string>; // O(1) circular buffer for output lines
   errors: DevServerError[];
 }
 
@@ -77,18 +78,15 @@ export class DevServerManager {
       port,
       actualPort: null,
       ready: false,
-      output: [],
+      output: new CircularBuffer<string>(1000), // O(1) circular buffer
       errors: [],
     };
 
     // Handle output
     ptyProcess.onData((data) => {
       if (this.server) {
+        // CircularBuffer handles overflow automatically - O(1) operation
         this.server.output.push(data);
-        // Keep only last 1000 lines
-        if (this.server.output.length > 1000) {
-          this.server.output.shift();
-        }
 
         // Try to detect actual port from output
         if (!this.server.actualPort) {
@@ -340,7 +338,7 @@ export class DevServerManager {
    * Detect current phase from server output
    */
   private detectPhaseFromOutput(): DevServerProgress['phase'] {
-    const recentOutput = this.server?.output.slice(-10).join('') || '';
+    const recentOutput = this.server?.output.last(10).join('') || '';
 
     if (recentOutput.includes('npm install') || recentOutput.includes('installing')) {
       return 'installing';
@@ -483,7 +481,7 @@ export class DevServerManager {
    * Get recent server output
    */
   getOutput(): string[] {
-    return this.server?.output ?? [];
+    return this.server?.output.toArray() ?? [];
   }
 
   /**

@@ -11,6 +11,7 @@
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { BrowserView } from 'electron';
+import { CircularBuffer } from '@claude-lens/core';
 
 // MCP Protocol types
 interface MCPRequest {
@@ -35,13 +36,13 @@ interface ConsoleMessage {
 
 // Store references
 let browserViewRef: BrowserView | null = null;
-let consoleBufferRef: ConsoleMessage[] = [];
+let consoleBufferRef: CircularBuffer<ConsoleMessage> | null = null;
 
 export function setBrowserView(view: BrowserView | null) {
   browserViewRef = view;
 }
 
-export function setConsoleBuffer(buffer: ConsoleMessage[]) {
+export function setConsoleBuffer(buffer: CircularBuffer<ConsoleMessage>) {
   consoleBufferRef = buffer;
 }
 
@@ -129,7 +130,9 @@ async function handleGetPageInfo(): Promise<{ url: string; title: string } | nul
 }
 
 async function handleGetConsoleLogs(level?: string): Promise<ConsoleMessage[]> {
-  let logs = [...consoleBufferRef];
+  if (!consoleBufferRef) return [];
+
+  let logs = consoleBufferRef.toArray();
   if (level) {
     logs = logs.filter(m => m.level === level);
   }

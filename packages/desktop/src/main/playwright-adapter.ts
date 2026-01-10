@@ -22,6 +22,8 @@ export class PlaywrightAdapter {
   private page: Page | null = null;
   private browserView: BrowserView | null = null;
   private cdpPort: number;
+  // Track dialog handler to prevent memory leaks from multiple registrations
+  private dialogHandler: ((dialog: import('playwright-core').Dialog) => Promise<void>) | null = null;
 
   constructor(cdpPort: number = DEFAULT_CDP_PORT) {
     this.cdpPort = cdpPort;
@@ -175,6 +177,7 @@ export class PlaywrightAdapter {
     this.context = null;
     this.page = null;
     this.browserView = null;
+    this.dialogHandler = null; // Clear dialog handler reference
   }
 
   /**
@@ -521,18 +524,27 @@ export class PlaywrightAdapter {
 
   /**
    * Handle dialog (alert, confirm, prompt)
+   * Note: Removes any previously registered handler to prevent memory leaks
    */
   onDialog(handler: (dialog: { type: string; message: string; accept: () => Promise<void>; dismiss: () => Promise<void> }) => void): void {
-    if (this.page) {
-      this.page.on('dialog', async (dialog) => {
-        handler({
-          type: dialog.type(),
-          message: dialog.message(),
-          accept: () => dialog.accept(),
-          dismiss: () => dialog.dismiss(),
-        });
-      });
+    if (!this.page) return;
+
+    // Remove previous handler to prevent memory leak
+    if (this.dialogHandler) {
+      this.page.off('dialog', this.dialogHandler);
     }
+
+    // Create and store new handler
+    this.dialogHandler = async (dialog) => {
+      handler({
+        type: dialog.type(),
+        message: dialog.message(),
+        accept: () => dialog.accept(),
+        dismiss: () => dialog.dismiss(),
+      });
+    };
+
+    this.page.on('dialog', this.dialogHandler);
   }
 
   /**

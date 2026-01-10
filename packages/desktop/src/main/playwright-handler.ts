@@ -3,6 +3,9 @@
  *
  * Implements the BridgeHandler interface using Playwright for real browser automation.
  * This replaces the JavaScript injection approach with true browser control.
+ *
+ * Uses a mutex to prevent race conditions when multiple MCP tool calls come in
+ * simultaneously, ensuring adapter operations are serialized.
  */
 
 import type { BrowserView } from 'electron';
@@ -15,6 +18,7 @@ import type {
   TypeOptions,
   WaitForOptions,
 } from '@claude-lens/core';
+import { Mutex } from 'async-mutex';
 import { PlaywrightAdapter } from './playwright-adapter.js';
 
 // Local console message type (from main process)
@@ -55,6 +59,11 @@ export function createPlaywrightBridgeHandler(
   // Track dialog handling preference
   let dialogAction: 'accept' | 'dismiss' = 'dismiss';
 
+  // Mutex to prevent race conditions in concurrent MCP tool calls
+  // This ensures adapter operations are serialized, preventing issues
+  // where one call might invalidate the connection mid-operation
+  const adapterMutex = new Mutex();
+
   // Convert local console message to core format
   const toCoreLogs = (buffer: LocalConsoleMessage[]): CoreConsoleMessage[] => {
     return buffer.map((m) => ({
@@ -72,6 +81,20 @@ export function createPlaywrightBridgeHandler(
       throw new Error('Playwright adapter not initialized');
     }
     return adapter;
+  };
+
+  /**
+   * Execute an adapter operation with mutex protection.
+   * This prevents race conditions when multiple MCP tools are called concurrently.
+   */
+  const withAdapter = async <T>(
+    operation: (adapter: PlaywrightAdapter) => Promise<T>
+  ): Promise<T> => {
+    return adapterMutex.runExclusive(async () => {
+      const adapter = getAdapter();
+      await adapter.ensureConnected();
+      return operation(adapter);
+    });
   };
 
   // Helper to inject highlight overlay (still uses executeJS for visual feedback)
@@ -133,8 +156,9 @@ export function createPlaywrightBridgeHandler(
 
     async navigate(url: string): Promise<{ success: boolean; error?: string }> {
       try {
-        const adapter = getAdapter();
-        await adapter.goto(url, { waitUntil: 'domcontentloaded' });
+        await withAdapter(async (adapter) => {
+          await adapter.goto(url, { waitUntil: 'domcontentloaded' });
+        });
         return { success: true };
       } catch (err) {
         return { success: false, error: String(err) };
@@ -305,129 +329,161 @@ export function createPlaywrightBridgeHandler(
     },
 
     async click(selector: string, options?: ClickOptions): Promise<void> {
-      const adapter = getAdapter();
-      await adapter.click(selector, {
-        button: options?.button,
-        clickCount: options?.clickCount,
-        delay: options?.delay,
+      await withAdapter(async (adapter) => {
+        await adapter.click(selector, {
+          button: options?.button,
+          clickCount: options?.clickCount,
+          delay: options?.delay,
+        });
       });
     },
 
     async type(selector: string, text: string, options?: TypeOptions): Promise<void> {
-      const adapter = getAdapter();
-
-      if (options?.clearFirst) {
-        // Use fill to clear and type (Playwright's fill clears first)
-        await adapter.fill(selector, text);
-      } else {
-        // Use pressSequentially for typing without clearing
-        await adapter.type(selector, text, { delay: options?.delay });
-      }
+      await withAdapter(async (adapter) => {
+        if (options?.clearFirst) {
+          // Use fill to clear and type (Playwright's fill clears first)
+          await adapter.fill(selector, text);
+        } else {
+          // Use pressSequentially for typing without clearing
+          await adapter.type(selector, text, { delay: options?.delay });
+        }
+      });
     },
 
     async waitFor(selector: string, options?: WaitForOptions): Promise<ElementInfo> {
-      const adapter = getAdapter();
-      const page = await adapter.ensureConnected();
+      return withAdapter(async (adapter) => {
+        const page = await adapter.ensureConnected();
 
-      await page.waitForSelector(selector, {
-        state: options?.visible ? 'visible' : 'attached',
-        timeout: options?.timeout ?? 5000,
+        await page.waitForSelector(selector, {
+          state: options?.visible ? 'visible' : 'attached',
+          timeout: options?.timeout ?? 5000,
+        });
+
+        // Now get element info (call without mutex since we're already in one)
+        const view = getBrowserView();
+        if (!view) throw new Error('Browser view not available');
+
+        const script = `
+          (function() {
+            const el = document.querySelector(${JSON.stringify(selector)});
+            if (!el) return null;
+            const rect = el.getBoundingClientRect();
+            return {
+              tagName: el.tagName.toLowerCase(),
+              selector: ${JSON.stringify(selector)},
+              boundingBox: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+            };
+          })()
+        `;
+        const info = await page.evaluate(script);
+        if (!info) {
+          throw new Error(`Element found but info could not be retrieved: ${selector}`);
+        }
+        return info as ElementInfo;
       });
-
-      // Now get element info
-      const info = await this.inspectElement(selector);
-      if (!info) {
-        throw new Error(`Element found but info could not be retrieved: ${selector}`);
-      }
-
-      return info;
     },
 
     // Playwright-specific extensions
 
     async fill(selector: string, value: string): Promise<void> {
-      const adapter = getAdapter();
-      await adapter.fill(selector, value);
+      await withAdapter(async (adapter) => {
+        await adapter.fill(selector, value);
+      });
     },
 
     async selectOption(selector: string, values: string | string[]): Promise<string[]> {
-      const adapter = getAdapter();
-      return adapter.selectOption(selector, values);
+      return withAdapter(async (adapter) => {
+        return adapter.selectOption(selector, values);
+      });
     },
 
     async hover(selector: string): Promise<void> {
-      const adapter = getAdapter();
-      await adapter.hover(selector);
+      await withAdapter(async (adapter) => {
+        await adapter.hover(selector);
+      });
     },
 
     async pressKey(key: string): Promise<void> {
-      const adapter = getAdapter();
-      await adapter.pressKey(key);
+      await withAdapter(async (adapter) => {
+        await adapter.pressKey(key);
+      });
     },
 
     async dragAndDrop(source: string, target: string): Promise<void> {
-      const adapter = getAdapter();
-      await adapter.dragAndDrop(source, target);
+      await withAdapter(async (adapter) => {
+        await adapter.dragAndDrop(source, target);
+      });
     },
 
     async scroll(options: { selector?: string; direction?: string; distance?: number }): Promise<void> {
-      const adapter = getAdapter();
-      await adapter.scroll({
-        selector: options.selector,
-        direction: options.direction as 'up' | 'down' | 'left' | 'right' | undefined,
-        distance: options.distance,
+      await withAdapter(async (adapter) => {
+        await adapter.scroll({
+          selector: options.selector,
+          direction: options.direction as 'up' | 'down' | 'left' | 'right' | undefined,
+          distance: options.distance,
+        });
       });
     },
 
     async waitForResponse(urlPattern: string): Promise<{ url: string; status: number }> {
-      const adapter = getAdapter();
-      const result = await adapter.waitForResponse(urlPattern);
-      return { url: result.url, status: result.status };
+      return withAdapter(async (adapter) => {
+        const result = await adapter.waitForResponse(urlPattern);
+        return { url: result.url, status: result.status };
+      });
     },
 
     async getText(selector: string): Promise<string> {
-      const adapter = getAdapter();
-      return adapter.getText(selector);
+      return withAdapter(async (adapter) => {
+        return adapter.getText(selector);
+      });
     },
 
     async getAttribute(selector: string, name: string): Promise<string | null> {
-      const adapter = getAdapter();
-      return adapter.getAttribute(selector, name);
+      return withAdapter(async (adapter) => {
+        return adapter.getAttribute(selector, name);
+      });
     },
 
     async isVisible(selector: string): Promise<boolean> {
-      const adapter = getAdapter();
-      return adapter.isVisible(selector);
+      return withAdapter(async (adapter) => {
+        return adapter.isVisible(selector);
+      });
     },
 
     async isEnabled(selector: string): Promise<boolean> {
-      const adapter = getAdapter();
-      return adapter.isEnabled(selector);
+      return withAdapter(async (adapter) => {
+        return adapter.isEnabled(selector);
+      });
     },
 
     async isChecked(selector: string): Promise<boolean> {
-      const adapter = getAdapter();
-      return adapter.isChecked(selector);
+      return withAdapter(async (adapter) => {
+        return adapter.isChecked(selector);
+      });
     },
 
     async evaluate(script: string): Promise<unknown> {
-      const adapter = getAdapter();
-      return adapter.evaluate(script);
+      return withAdapter(async (adapter) => {
+        return adapter.evaluate(script);
+      });
     },
 
     async getAccessibilitySnapshot(): Promise<string> {
-      const adapter = getAdapter();
-      return adapter.getAccessibilitySnapshot();
+      return withAdapter(async (adapter) => {
+        return adapter.getAccessibilitySnapshot();
+      });
     },
 
     async goBack(): Promise<void> {
-      const adapter = getAdapter();
-      await adapter.goBack();
+      await withAdapter(async (adapter) => {
+        await adapter.goBack();
+      });
     },
 
     async goForward(): Promise<void> {
-      const adapter = getAdapter();
-      await adapter.goForward();
+      await withAdapter(async (adapter) => {
+        await adapter.goForward();
+      });
     },
 
     setDialogHandler(action: 'accept' | 'dismiss'): void {

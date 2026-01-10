@@ -10,38 +10,122 @@ import type { ElementInfo, ProjectInfo } from './types';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { SearchAddon } from '@xterm/addon-search';
 import 'xterm/css/xterm.css';
 
 /**
- * Load terminal fonts using native FontFace API
- * Ensures fonts are ready before xterm renders to canvas
+ * Wait for fonts to load before opening terminal
+ * Based on Tabby terminal's approach: https://github.com/Eugeny/tabby
+ *
+ * xterm.js measures fonts during terminal.open() and caches the measurements.
+ * If the font isn't loaded yet, it measures fallback fonts and icons won't render.
  */
-async function loadTerminalFonts(fontFamily: string): Promise<void> {
-  // Extract primary font name from the font stack
-  const primaryFont = (fontFamily.split(',')[0] ?? fontFamily).trim().replace(/['"]/g, '');
+async function waitForFonts(fontFamily: string, timeoutMs = 3000): Promise<void> {
+  const startTime = Date.now();
 
-  // Use document.fonts API to check/load fonts
-  if (document.fonts) {
+  // Extract all font names from the stack
+  const fontNames = fontFamily.split(',').map(f => f.trim().replace(/['"]/g, '')).filter(f => f && f !== 'monospace');
+  console.log(`Waiting for fonts: ${fontNames.join(', ')}`);
+
+  // Request all fonts to load
+  for (const font of fontNames) {
     try {
-      // Check if the font is already loaded
-      const fontLoaded = document.fonts.check(`13px "${primaryFont}"`);
-      if (fontLoaded) {
-        console.log('Font already loaded:', primaryFont);
-        return;
-      }
-
-      // Wait for fonts to be ready (with timeout)
-      await Promise.race([
-        document.fonts.ready,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Font load timeout')), 3000))
-      ]);
-
-      console.log('Fonts ready via document.fonts');
-    } catch (err) {
-      console.warn('Font loading warning:', err);
-      // Continue anyway - fallback fonts will work
+      await document.fonts.load(`13px "${font}"`);
+      console.log(`Font load requested: ${font}`);
+    } catch (e) {
+      console.warn(`Font load request failed for ${font}:`, e);
     }
   }
+
+  // Wait for all fonts to be ready
+  await document.fonts.ready;
+  console.log('document.fonts.ready resolved');
+
+  // Check each font
+  for (const font of fontNames) {
+    let fontAvailable = document.fonts.check(`13px "${font}"`);
+    console.log(`Font check (${font}):`, fontAvailable);
+
+    // Poll if not yet available
+    while (!fontAvailable && (Date.now() - startTime) < timeoutMs) {
+      await new Promise(r => setTimeout(r, 100));
+      fontAvailable = document.fonts.check(`13px "${font}"`);
+    }
+
+    if (!fontAvailable) {
+      console.warn(`Font "${font}" not available after timeout, proceeding anyway`);
+    } else {
+      console.log(`Font "${font}" is ready`);
+    }
+  }
+
+  // Additional delay for font rendering to settle
+  await new Promise(r => setTimeout(r, 500));
+}
+
+/**
+ * Font diagnostics for terminal icon rendering
+ *
+ * Tests critical Unicode codepoints used by Claude Code CLI:
+ * - U+23F5 (⏵) - Checkbox/play button icons
+ * - U+E0A0-E0B3 - Powerline/git icons
+ * - U+F000+ - Nerd Font devicons
+ *
+ * Logs warnings if fonts are missing or codepoints unsupported.
+ */
+function runFontDiagnostics(): void {
+  const criticalFonts = [
+    { name: 'JetBrains Mono NF Bundled', purpose: 'Main terminal text + Nerd Font icons' },
+    { name: 'Noto Sans Symbols 2', purpose: 'Unicode symbols (U+23F5 checkboxes)' },
+  ];
+
+  // Critical codepoints Claude Code uses
+  const criticalCodepoints = [
+    { char: '\u23F5', name: 'BLACK MEDIUM RIGHT-POINTING TRIANGLE', usage: 'checkboxes' },
+    { char: '\uF00C', name: 'Nerd Font checkmark', usage: 'success indicators' },
+    { char: '\uE0A0', name: 'Powerline git branch', usage: 'git status' },
+    { char: '\uE0B0', name: 'Powerline arrow right', usage: 'prompt separators' },
+  ];
+
+  console.group('🔤 Font Diagnostics');
+
+  // Check font availability
+  let allFontsLoaded = true;
+  for (const font of criticalFonts) {
+    const loaded = document.fonts.check(`13px "${font.name}"`);
+    if (loaded) {
+      console.log(`✓ ${font.name} - ${font.purpose}`);
+    } else {
+      console.warn(`✗ ${font.name} NOT LOADED - ${font.purpose}`);
+      allFontsLoaded = false;
+    }
+  }
+
+  // Test codepoint rendering via canvas
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    // Use the full font stack
+    ctx.font = "13px 'JetBrains Mono NF Bundled', 'Symbols Nerd Font', 'Noto Sans Symbols 2', monospace";
+
+    for (const cp of criticalCodepoints) {
+      const width = ctx.measureText(cp.char).width;
+      const hex = cp.char.codePointAt(0)?.toString(16).toUpperCase().padStart(4, '0');
+      if (width > 0) {
+        console.log(`✓ U+${hex} (${cp.name}) - ${width.toFixed(1)}px`);
+      } else {
+        console.warn(`✗ U+${hex} (${cp.name}) - zero width, may not render`);
+      }
+    }
+  }
+
+  if (allFontsLoaded) {
+    console.log('All critical fonts loaded successfully');
+  } else {
+    console.warn('Some fonts missing - icons may not render correctly');
+  }
+
+  console.groupEnd();
 }
 
 // Elements - Header
@@ -94,7 +178,8 @@ const sendPromptBtn = document.getElementById('sendPromptBtn') as HTMLButtonElem
 const resizer1 = document.getElementById('resizer1') as HTMLDivElement;
 const resizer2 = document.getElementById('resizer2') as HTMLDivElement;
 
-// Terminal setup
+// Terminal setup with optimized scrollback buffer
+// Font stack: Main font -> Symbols font for icons -> System fonts for standard Unicode symbols
 const terminal = new Terminal({
   theme: {
     background: '#1e1e1e',
@@ -102,10 +187,17 @@ const terminal = new Terminal({
     cursor: '#cccccc',
     selectionBackground: '#264f78',
   },
-  fontFamily: "'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, 'Consolas', 'Courier New', 'Segoe UI Symbol', 'Segoe UI Emoji', 'Noto Color Emoji', 'Apple Color Emoji', monospace",
+  // Complete font stack:
+  // 1. JetBrains Mono NF - main text + some icons
+  // 2. Symbols Nerd Font - Nerd Font icons
+  // 3. Noto Sans Symbols 2 - Unicode symbols (U+23F5 play buttons for Claude Code checkboxes)
+  // 4. System symbol fonts - standard Unicode symbols
+  // 5. monospace - final fallback
+  fontFamily: "'JetBrains Mono NF Bundled', 'Symbols Nerd Font', 'Noto Sans Symbols 2', 'Segoe UI Symbol', 'Apple Symbols', monospace",
   fontSize: 13,
   cursorBlink: true,
   allowProposedApi: true,
+  scrollback: 5000, // Limit scrollback to control memory usage
 });
 
 const fitAddon = new FitAddon();
@@ -253,15 +345,31 @@ async function init() {
     versionEl.textContent = `v${window.claudeLens.version}`;
   }
 
-  // Wait for terminal fonts to load before opening
-  // This prevents rendering issues with custom fonts in canvas-based xterm
+  // Wait for fonts to load BEFORE opening terminal
+  // This is critical - xterm.js caches font measurements on open()
   const fontFamily = terminal.options.fontFamily || 'monospace';
-  await loadTerminalFonts(fontFamily);
+  await waitForFonts(fontFamily);
 
-  // Now open terminal with fonts ready
+  // Now open terminal - font measurements will use the loaded font
   terminal.open(terminalEl);
-  console.log('Terminal opened with fonts:', fontFamily);
+  console.log('Terminal opened with font:', fontFamily);
+
+  // Run font diagnostics to verify icons will render correctly
+  runFontDiagnostics();
+
+  // Load search addon for Ctrl+F functionality
+  const searchAddon = new SearchAddon();
+  terminal.loadAddon(searchAddon);
+
   fitAddon.fit();
+  console.log('Terminal ready');
+
+  // Force a refresh after a delay for any rendering glitches
+  setTimeout(() => {
+    terminal.refresh(0, terminal.rows - 1);
+    console.log('Terminal refreshed');
+
+  }, 500);
 
   // PTY data handler
   window.claudeLens.pty.onData((data) => {
@@ -333,6 +441,12 @@ async function init() {
     startClaudeBtn.textContent = 'Running';
     window.claudeLens.pty.resize(terminal.cols, terminal.rows);
     terminal.focus();
+
+    // Force a refresh to ensure icons render correctly with auto-started output
+    // This catches any data written before the 200ms font refresh timer
+    setTimeout(() => {
+      terminal.refresh(0, terminal.rows - 1);
+    }, 300);
   });
 
   // Handle server ready event

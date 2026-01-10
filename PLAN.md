@@ -166,7 +166,9 @@ dropdown_context:
 
 ---
 
-## Phase 3: States & Detection
+## Phase 3: States & Detection ✅ COMPLETE
+
+**Commit:** `5ef3aba` - "feat(desktop): Phase 3 UX - form state, loading detection, freeze hover"
 
 **Goal:** Automatically detect and display element states that affect behavior.
 
@@ -478,10 +480,10 @@ git status
 - [x] Click item inside, verify action is blocked
 - [x] Send sequence to Claude, verify format
 
-### Phase 3
-- [ ] Select invalid form field, verify validation state shows
-- [ ] Select loading spinner, verify "Loading:" prefix
-- [ ] Freeze hover on tooltip, verify it stays visible
+### Phase 3 ✅
+- [x] Select invalid form field, verify validation state shows
+- [x] Select loading spinner, verify "Loading:" prefix
+- [x] Freeze hover on tooltip, verify it stays visible (F key)
 
 ### Phase 4
 - [ ] Select modal, verify overlay info

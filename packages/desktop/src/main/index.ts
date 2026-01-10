@@ -36,8 +36,12 @@ if (process.env.NODE_ENV === 'development') {
       forceHardReset: true,
       hardResetMethod: 'exit',
     });
-  } catch {
-    // electron-reload not available
+  } catch (error) {
+    // Only log if it's not the expected "module not found" error
+    const err = error as Error;
+    if (!err.message?.includes('Cannot find module')) {
+      console.debug('[Hot Reload] Failed to initialize:', err.message);
+    }
   }
 }
 
@@ -556,9 +560,19 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
       // Connect Playwright to the BrowserView for automation (non-blocking)
       // Don't await - Playwright connection can take 10+ seconds and isn't required for display
       if (playwrightAdapter) {
+        mainWindow?.webContents.send('playwright:connecting');
+
         playwrightAdapter.connect(browserView)
-          .then(() => console.log('[PlaywrightAdapter] Connected to BrowserView'))
-          .catch((err) => console.error('[PlaywrightAdapter] Failed to connect:', err));
+          .then(() => {
+            console.log('[PlaywrightAdapter] Connected to BrowserView');
+            mainWindow?.webContents.send('playwright:connected');
+          })
+          .catch((err) => {
+            console.error('[PlaywrightAdapter] Failed to connect:', err);
+            mainWindow?.webContents.send('playwright:error', {
+              message: 'Browser automation unavailable. MCP tools may not work.',
+            });
+          });
       }
     }
 
@@ -1105,8 +1119,8 @@ async function _injectCtrlClickCapture() {
         document.addEventListener('click', window.__claudeLensCtrlClickHandler, true);
       })()
     `);
-  } catch {
-    // Ignore injection errors
+  } catch (error) {
+    console.debug('[BrowserView] Inject script error:', error);
   }
 }
 
@@ -1158,7 +1172,8 @@ ipcMain.handle('browser:screenshot', async () => {
   try {
     const image = await browserView.webContents.capturePage();
     return image.toPNG().toString('base64');
-  } catch {
+  } catch (error) {
+    console.debug('[Screenshot] Capture failed:', error);
     return null;
   }
 });
@@ -1330,7 +1345,7 @@ ipcMain.handle('browser:highlight', async (_event, selector: string) => {
         // Remove existing highlights
         document.querySelectorAll('.claude-lens-highlight').forEach(el => el.remove());
 
-        const target = document.querySelector('${selector.replace(/'/g, "\\'")}');
+        const target = document.querySelector(${JSON.stringify(selector)});
         if (!target) return;
 
         const rect = target.getBoundingClientRect();
@@ -1401,8 +1416,8 @@ ipcMain.handle('browser:disableInspect', async () => {
       if (tooltip) tooltip.style.display = 'none';
       if (highlight) highlight.style.display = 'none';
     `);
-  } catch {
-    // Ignore errors
+  } catch (error) {
+    console.debug('[BrowserView] Script execution error:', error);
   }
 });
 
@@ -1479,8 +1494,8 @@ async function injectFreezeKeyboardShortcut() {
         document.addEventListener('keydown', window.__claudeLensFreezeKeyHandler, true);
       })()
     `);
-  } catch {
-    // Ignore
+  } catch (error) {
+    console.debug('[BrowserView] Script error:', error);
   }
 }
 
@@ -1543,8 +1558,8 @@ async function injectToastWatcher() {
         });
       })()
     `);
-  } catch {
-    // Ignore errors
+  } catch (error) {
+    console.debug('[BrowserView] Script execution error:', error);
   }
 }
 
@@ -1565,8 +1580,8 @@ ipcMain.handle('browser:unfreezeHover', async () => {
         if (style) style.remove();
       })()
     `);
-  } catch {
-    // Ignore errors
+  } catch (error) {
+    console.debug('[BrowserView] Script execution error:', error);
   }
 });
 
@@ -1597,8 +1612,8 @@ function setupBrowserViewMessaging() {
           }
         }
       `);
-    } catch {
-      // Ignore - page might not have script loaded
+    } catch (error) {
+      console.debug('[BrowserView] Reset Ctrl state failed (page may have navigated):', error);
     }
   });
 
@@ -1614,8 +1629,8 @@ function setupBrowserViewMessaging() {
       try {
         const elementInfo = JSON.parse(message.replace('CLAUDE_LENS_ELEMENT:', ''));
         mainWindow?.webContents.send('element-selected', elementInfo);
-      } catch {
-        // Ignore parse errors
+      } catch (error) {
+        console.debug('[Console] JSON parse error:', error);
       }
       return;
     }
@@ -1625,8 +1640,8 @@ function setupBrowserViewMessaging() {
       try {
         const elementInfo = JSON.parse(message.replace('CLAUDE_LENS_CTRL_ELEMENT:', ''));
         mainWindow?.webContents.send('element-selected', elementInfo);
-      } catch {
-        // Ignore parse errors
+      } catch (error) {
+        console.debug('[Console] JSON parse error:', error);
       }
       return;
     }
@@ -1636,8 +1651,8 @@ function setupBrowserViewMessaging() {
       try {
         const toastInfo = JSON.parse(message.replace('CLAUDE_LENS_TOAST:', ''));
         mainWindow?.webContents.send('toast-captured', toastInfo);
-      } catch {
-        // Ignore parse errors
+      } catch (error) {
+        console.debug('[Console] JSON parse error:', error);
       }
       return;
     }

@@ -53,6 +53,16 @@ contextBridge.exposeInMainWorld('claudeLens', {
     onToastCaptured: (callback: (toast: { text: string; type: string; timestamp: number }) => void) => {
       ipcRenderer.on('toast-captured', (_event, toast) => callback(toast));
     },
+    // Playwright connection status
+    onPlaywrightConnecting: (callback: () => void) => {
+      ipcRenderer.on('playwright:connecting', () => callback());
+    },
+    onPlaywrightConnected: (callback: () => void) => {
+      ipcRenderer.on('playwright:connected', () => callback());
+    },
+    onPlaywrightError: (callback: (data: { message: string }) => void) => {
+      ipcRenderer.on('playwright:error', (_event, data) => callback(data));
+    },
   },
 
   // Project management APIs

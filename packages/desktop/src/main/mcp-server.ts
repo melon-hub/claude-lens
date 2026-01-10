@@ -348,10 +348,16 @@ async function handleRequest(request: MCPRequest): Promise<MCPResponse> {
   }
 }
 
+// Max request body size (1MB)
+const MAX_BODY_SIZE = 1024 * 1024;
+
 // HTTP request handler
 function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS headers - restricted to localhost only
+  const origin = req.headers.origin;
+  if (origin && (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1'))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -368,11 +374,27 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
   }
 
   let body = '';
+  let size = 0;
+  let aborted = false;
+
   req.on('data', chunk => {
+    size += chunk.length;
+    if (size > MAX_BODY_SIZE) {
+      aborted = true;
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32600, message: 'Request body too large (max 1MB)' },
+      }));
+      req.destroy();
+      return;
+    }
     body += chunk;
   });
 
   req.on('end', async () => {
+    if (aborted) return;
     try {
       const request = JSON.parse(body) as MCPRequest;
       const response = await handleRequest(request);

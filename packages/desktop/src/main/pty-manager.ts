@@ -22,6 +22,11 @@ export class PtyManager {
       throw new Error('PTY already running');
     }
 
+    // Validate sessionId to prevent command injection
+    if (options.sessionId && !/^[a-zA-Z0-9_-]+$/.test(options.sessionId)) {
+      throw new Error('sessionId must be alphanumeric (letters, numbers, underscore, hyphen)');
+    }
+
     const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
     const cwd = options.cwd || process.cwd();
 

@@ -164,20 +164,27 @@ export class PlaywrightAdapter {
    * Disconnect Playwright
    */
   async disconnect(): Promise<void> {
+    // Remove dialog handler BEFORE disconnecting to prevent memory leak
+    if (this.page && this.dialogHandler) {
+      this.page.off('dialog', this.dialogHandler);
+    }
+
     try {
       // Don't close browser - it's Electron's browser, we're just disconnecting
       if (this.browser) {
-        await this.browser.close().catch(() => {});
+        await this.browser.close().catch((err) => {
+          console.debug('[PlaywrightAdapter] Browser close warning:', err.message);
+        });
       }
-    } catch {
-      // Ignore close errors
+    } catch (error) {
+      console.warn('[PlaywrightAdapter] Disconnect cleanup error:', error);
+    } finally {
+      this.browser = null;
+      this.context = null;
+      this.page = null;
+      this.browserView = null;
+      this.dialogHandler = null;
     }
-
-    this.browser = null;
-    this.context = null;
-    this.page = null;
-    this.browserView = null;
-    this.dialogHandler = null; // Clear dialog handler reference
   }
 
   /**
@@ -334,6 +341,37 @@ export class PlaywrightAdapter {
   }
 
   /**
+   * Validate selector - reject jQuery pseudo-selectors that aren't valid CSS
+   */
+  private validateSelector(selector: string): void {
+    const jqueryPatterns = [
+      ':contains(',
+      ':visible',
+      ':hidden',
+      ':first',
+      ':last',
+      ':eq(',
+      ':gt(',
+      ':lt(',
+      ':even',
+      ':odd',
+      ':checkbox',
+      ':radio',
+      ':text',
+      ':submit',
+    ];
+
+    for (const pattern of jqueryPatterns) {
+      if (selector.includes(pattern)) {
+        throw new Error(
+          `Invalid selector: '${pattern}' is jQuery syntax, not valid CSS. ` +
+          `Use standard CSS selectors or Playwright locators like 'text=...' instead.`
+        );
+      }
+    }
+  }
+
+  /**
    * Click an element with improved error handling and retry logic
    */
   async click(
@@ -347,13 +385,8 @@ export class PlaywrightAdapter {
       retries?: number;
     }
   ): Promise<void> {
-    // Validate selector - reject jQuery-style selectors with helpful message
-    if (selector.includes(':contains(')) {
-      throw new Error(
-        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS. ` +
-        `Use text-based locators like 'text=Filter' or data attributes instead.`
-      );
-    }
+    // Validate selector - reject jQuery-style selectors
+    this.validateSelector(selector);
 
     const page = await this.ensureConnected();
     const retries = options?.retries ?? 2; // Retry up to 2 times by default
@@ -445,13 +478,8 @@ export class PlaywrightAdapter {
    * Fill an input field (clears first, then types)
    */
   async fill(selector: string, value: string, options?: { timeout?: number }): Promise<void> {
-    // Validate selector
-    if (selector.includes(':contains(')) {
-      throw new Error(
-        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS. ` +
-        `Use standard CSS selectors like '#email' or '[name="email"]'.`
-      );
-    }
+    // Validate selector - reject jQuery-style selectors
+    this.validateSelector(selector);
 
     const page = await this.ensureConnected();
     const fillOptions = {
@@ -487,13 +515,8 @@ export class PlaywrightAdapter {
     text: string,
     options?: { delay?: number; timeout?: number }
   ): Promise<void> {
-    // Validate selector
-    if (selector.includes(':contains(')) {
-      throw new Error(
-        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS. ` +
-        `Use standard CSS selectors like '#search' or '[name="query"]'.`
-      );
-    }
+    // Validate selector - reject jQuery-style selectors
+    this.validateSelector(selector);
 
     const page = await this.ensureConnected();
     const timeout = options?.timeout ?? 10000;
@@ -529,12 +552,8 @@ export class PlaywrightAdapter {
     values: string | string[],
     options?: { timeout?: number }
   ): Promise<string[]> {
-    // Validate selector
-    if (selector.includes(':contains(')) {
-      throw new Error(
-        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS.`
-      );
-    }
+    // Validate selector - reject jQuery-style selectors
+    this.validateSelector(selector);
 
     const page = await this.ensureConnected();
     const selectOptions = {
@@ -565,12 +584,8 @@ export class PlaywrightAdapter {
    * Hover over an element
    */
   async hover(selector: string, options?: { timeout?: number; force?: boolean }): Promise<void> {
-    // Validate selector
-    if (selector.includes(':contains(')) {
-      throw new Error(
-        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS.`
-      );
-    }
+    // Validate selector - reject jQuery-style selectors
+    this.validateSelector(selector);
 
     const page = await this.ensureConnected();
     const hoverOptions = {
@@ -599,12 +614,9 @@ export class PlaywrightAdapter {
     targetSelector: string,
     options?: { timeout?: number }
   ): Promise<void> {
-    // Validate selectors
-    if (sourceSelector.includes(':contains(') || targetSelector.includes(':contains(')) {
-      throw new Error(
-        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS.`
-      );
-    }
+    // Validate selectors - reject jQuery-style selectors
+    this.validateSelector(sourceSelector);
+    this.validateSelector(targetSelector);
 
     const page = await this.ensureConnected();
     const dragOptions = {
@@ -659,12 +671,8 @@ export class PlaywrightAdapter {
     selector: string,
     options?: { state?: 'attached' | 'visible' | 'hidden'; timeout?: number }
   ): Promise<void> {
-    // Validate selector
-    if (selector.includes(':contains(')) {
-      throw new Error(
-        `Invalid selector: ':contains()' is jQuery syntax, not valid CSS.`
-      );
-    }
+    // Validate selector - reject jQuery-style selectors
+    this.validateSelector(selector);
 
     const page = await this.ensureConnected();
     const timeout = options?.timeout ?? 10000;

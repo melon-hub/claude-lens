@@ -115,8 +115,11 @@ export class BridgeServer {
 
     return new Promise((resolve, reject) => {
       this.server = http.createServer(async (req, res) => {
-        // CORS headers for local access
-        res.setHeader('Access-Control-Allow-Origin', '*');
+        // CORS headers - restricted to localhost only
+        const origin = req.headers.origin;
+        if (origin && (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1'))) {
+          res.setHeader('Access-Control-Allow-Origin', origin);
+        }
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -417,10 +420,23 @@ export class BridgeServer {
     });
   }
 
+  private static readonly MAX_BODY_SIZE = 1024 * 1024; // 1MB
+
   private parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
     return new Promise((resolve, reject) => {
       let data = '';
-      req.on('data', (chunk) => (data += chunk));
+      let size = 0;
+
+      req.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > BridgeServer.MAX_BODY_SIZE) {
+          req.destroy();
+          reject(new Error('Request body too large (max 1MB)'));
+          return;
+        }
+        data += chunk;
+      });
+
       req.on('end', () => {
         try {
           resolve(data ? JSON.parse(data) : {});

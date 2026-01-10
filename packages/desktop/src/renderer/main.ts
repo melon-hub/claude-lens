@@ -11,6 +11,7 @@ import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { SearchAddon } from '@xterm/addon-search';
+import { CircularBuffer } from '@claude-lens/core';
 import 'xterm/css/xterm.css';
 
 /**
@@ -223,8 +224,8 @@ interface ConsoleMessage {
   message: string;
   timestamp: number;
 }
-const consoleBuffer: ConsoleMessage[] = [];
 const MAX_CONSOLE_MESSAGES = 50;
+const consoleBuffer = new CircularBuffer<ConsoleMessage>(MAX_CONSOLE_MESSAGES);
 
 // Show project modal when a project is detected
 function showProjectModal(project: ProjectInfo) {
@@ -773,12 +774,9 @@ function removeElement(selector: string) {
   }
 }
 
-// Console message handling
+// Console message handling - CircularBuffer handles overflow automatically (O(1))
 function addConsoleMessage(msg: ConsoleMessage) {
   consoleBuffer.push(msg);
-  if (consoleBuffer.length > MAX_CONSOLE_MESSAGES) {
-    consoleBuffer.shift();
-  }
   updateConsoleUI();
 }
 
@@ -849,7 +847,7 @@ goBtn.addEventListener('click', async () => {
   if (!url) return;
 
   // Clear console buffer on navigation
-  consoleBuffer.length = 0;
+  consoleBuffer.clear();
   updateConsoleUI();
 
   setStatus('Loading...');
@@ -923,7 +921,7 @@ consoleToggleBtn.addEventListener('click', () => {
 
 // Console clear button
 consoleClearBtn.addEventListener('click', () => {
-  consoleBuffer.length = 0;
+  consoleBuffer.clear();
   updateConsoleUI();
 });
 
@@ -943,7 +941,7 @@ consoleSendBtn.addEventListener('click', async () => {
   const pageURL = await window.claudeLens.browser.getURL();
 
   // Format console messages
-  const consoleLines = consoleBuffer.map(m => {
+  const consoleLines = consoleBuffer.toArray().map(m => {
     const time = new Date(m.timestamp).toLocaleTimeString();
     return `[${time}] [${m.level.toUpperCase()}] ${m.message}`;
   });

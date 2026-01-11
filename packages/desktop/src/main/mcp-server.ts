@@ -124,7 +124,8 @@ async function handleGetPageInfo(): Promise<{ url: string; title: string } | nul
     const url = browserViewRef.webContents.getURL();
     const title = browserViewRef.webContents.getTitle();
     return { url, title };
-  } catch {
+  } catch (error) {
+    console.debug('[MCP] handleGetPageInfo failed:', error);
     return null;
   }
 }
@@ -400,12 +401,14 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       const response = await handleRequest(request);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(response));
-    } catch {
+    } catch (error) {
+      const parseError = error instanceof SyntaxError ? error.message : 'Unknown parse error';
+      console.debug('[MCP Server] JSON parse error:', parseError);
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         jsonrpc: '2.0',
         id: null,
-        error: { code: -32700, message: 'Parse error' },
+        error: { code: -32700, message: `Parse error: ${parseError}` },
       }));
     }
   });

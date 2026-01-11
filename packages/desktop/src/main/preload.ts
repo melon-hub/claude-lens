@@ -18,13 +18,19 @@ contextBridge.exposeInMainWorld('claudeLens', {
     write: (data: string) => ipcRenderer.invoke('pty:write', data),
     resize: (cols: number, rows: number) => ipcRenderer.invoke('pty:resize', cols, rows),
     onData: (callback: (data: string) => void) => {
-      ipcRenderer.on('pty:data', (_event, data) => callback(data));
+      const handler = (_event: Electron.IpcRendererEvent, data: string) => callback(data);
+      ipcRenderer.on('pty:data', handler);
+      return () => ipcRenderer.removeListener('pty:data', handler);
     },
     onExit: (callback: (code: number) => void) => {
-      ipcRenderer.on('pty:exit', (_event, code) => callback(code));
+      const handler = (_event: Electron.IpcRendererEvent, code: number) => callback(code);
+      ipcRenderer.on('pty:exit', handler);
+      return () => ipcRenderer.removeListener('pty:exit', handler);
     },
     onAutoStarted: (callback: () => void) => {
-      ipcRenderer.on('pty:autoStarted', () => callback());
+      const handler = () => callback();
+      ipcRenderer.on('pty:autoStarted', handler);
+      return () => ipcRenderer.removeListener('pty:autoStarted', handler);
     },
   },
 
@@ -41,27 +47,42 @@ contextBridge.exposeInMainWorld('claudeLens', {
     disableInspect: () => ipcRenderer.invoke('browser:disableInspect'),
     freezeHover: () => ipcRenderer.invoke('browser:freezeHover'),
     unfreezeHover: () => ipcRenderer.invoke('browser:unfreezeHover'),
+    setVisible: (visible: boolean) => ipcRenderer.invoke('browser:setVisible', visible),
     onElementSelected: (callback: (element: unknown) => void) => {
-      ipcRenderer.on('element-selected', (_event, element) => callback(element));
+      const handler = (_event: Electron.IpcRendererEvent, element: unknown) => callback(element);
+      ipcRenderer.on('element-selected', handler);
+      return () => ipcRenderer.removeListener('element-selected', handler);
     },
     onConsoleMessage: (callback: (msg: { level: string; message: string; timestamp: number }) => void) => {
-      ipcRenderer.on('console-message', (_event, msg) => callback(msg));
+      const handler = (_event: Electron.IpcRendererEvent, msg: { level: string; message: string; timestamp: number }) => callback(msg);
+      ipcRenderer.on('console-message', handler);
+      return () => ipcRenderer.removeListener('console-message', handler);
     },
     onFreezeToggle: (callback: () => void) => {
-      ipcRenderer.on('freeze-toggle', () => callback());
+      const handler = () => callback();
+      ipcRenderer.on('freeze-toggle', handler);
+      return () => ipcRenderer.removeListener('freeze-toggle', handler);
     },
     onToastCaptured: (callback: (toast: { text: string; type: string; timestamp: number }) => void) => {
-      ipcRenderer.on('toast-captured', (_event, toast) => callback(toast));
+      const handler = (_event: Electron.IpcRendererEvent, toast: { text: string; type: string; timestamp: number }) => callback(toast);
+      ipcRenderer.on('toast-captured', handler);
+      return () => ipcRenderer.removeListener('toast-captured', handler);
     },
     // Playwright connection status
     onPlaywrightConnecting: (callback: () => void) => {
-      ipcRenderer.on('playwright:connecting', () => callback());
+      const handler = () => callback();
+      ipcRenderer.on('playwright:connecting', handler);
+      return () => ipcRenderer.removeListener('playwright:connecting', handler);
     },
     onPlaywrightConnected: (callback: () => void) => {
-      ipcRenderer.on('playwright:connected', () => callback());
+      const handler = () => callback();
+      ipcRenderer.on('playwright:connected', handler);
+      return () => ipcRenderer.removeListener('playwright:connected', handler);
     },
     onPlaywrightError: (callback: (data: { message: string }) => void) => {
-      ipcRenderer.on('playwright:error', (_event, data) => callback(data));
+      const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data);
+      ipcRenderer.on('playwright:error', handler);
+      return () => ipcRenderer.removeListener('playwright:error', handler);
     },
   },
 
@@ -72,23 +93,33 @@ contextBridge.exposeInMainWorld('claudeLens', {
     getInfo: () => ipcRenderer.invoke('project:getInfo'),
     stopServer: () => ipcRenderer.invoke('project:stopServer'),
     onDetected: (callback: (info: unknown) => void) => {
-      ipcRenderer.on('project:detected', (_event, info) => callback(info));
+      const handler = (_event: Electron.IpcRendererEvent, info: unknown) => callback(info);
+      ipcRenderer.on('project:detected', handler);
+      return () => ipcRenderer.removeListener('project:detected', handler);
     },
   },
 
   // Server events (dev server / static server)
   server: {
     onOutput: (callback: (data: string) => void) => {
-      ipcRenderer.on('server:output', (_event, data) => callback(data));
+      const handler = (_event: Electron.IpcRendererEvent, data: string) => callback(data);
+      ipcRenderer.on('server:output', handler);
+      return () => ipcRenderer.removeListener('server:output', handler);
     },
     onReady: (callback: (info: { port: number }) => void) => {
-      ipcRenderer.on('server:ready', (_event, info) => callback(info));
+      const handler = (_event: Electron.IpcRendererEvent, info: { port: number }) => callback(info);
+      ipcRenderer.on('server:ready', handler);
+      return () => ipcRenderer.removeListener('server:ready', handler);
     },
     onExit: (callback: (info: { code: number }) => void) => {
-      ipcRenderer.on('server:exit', (_event, info) => callback(info));
+      const handler = (_event: Electron.IpcRendererEvent, info: { code: number }) => callback(info);
+      ipcRenderer.on('server:exit', handler);
+      return () => ipcRenderer.removeListener('server:exit', handler);
     },
     onProgress: (callback: (progress: { elapsed: number; status: string; phase: string }) => void) => {
-      ipcRenderer.on('server:progress', (_event, progress) => callback(progress));
+      const handler = (_event: Electron.IpcRendererEvent, progress: { elapsed: number; status: string; phase: string }) => callback(progress);
+      ipcRenderer.on('server:progress', handler);
+      return () => ipcRenderer.removeListener('server:progress', handler);
     },
   },
 
@@ -97,18 +128,23 @@ contextBridge.exposeInMainWorld('claudeLens', {
     ipcRenderer.invoke('send-to-claude', prompt, elementContext),
 });
 
+// Cleanup function type for event listeners
+type CleanupFn = () => void;
+
 // TypeScript types for the exposed API
 export interface ClaudeLensAPI {
+  version: string;
   pty: {
     start: () => Promise<{ success: boolean; error?: string }>;
     write: (data: string) => Promise<{ success: boolean }>;
     resize: (cols: number, rows: number) => Promise<void>;
-    onData: (callback: (data: string) => void) => void;
-    onExit: (callback: (code: number) => void) => void;
-    onAutoStarted: (callback: () => void) => void;
+    onData: (callback: (data: string) => void) => CleanupFn;
+    onExit: (callback: (code: number) => void) => CleanupFn;
+    onAutoStarted: (callback: () => void) => CleanupFn;
   };
   browser: {
     navigate: (url: string) => Promise<{ success: boolean; error?: string }>;
+    getURL: () => Promise<string>;
     screenshot: () => Promise<string | null>;
     inspect: (x: number, y: number) => Promise<{
       tagName: string;
@@ -125,19 +161,29 @@ export interface ClaudeLensAPI {
     updateBounds: (width: number, drawerHeight?: number) => Promise<void>;
     enableInspect: () => Promise<{ success: boolean; error?: string }>;
     disableInspect: () => Promise<void>;
-    onElementSelected: (callback: (element: unknown) => void) => void;
+    freezeHover: () => Promise<void>;
+    unfreezeHover: () => Promise<void>;
+    setVisible: (visible: boolean) => Promise<void>;
+    onElementSelected: (callback: (element: unknown) => void) => CleanupFn;
+    onConsoleMessage: (callback: (msg: { level: string; message: string; timestamp: number }) => void) => CleanupFn;
+    onFreezeToggle: (callback: () => void) => CleanupFn;
+    onToastCaptured: (callback: (toast: { text: string; type: string; timestamp: number }) => void) => CleanupFn;
+    onPlaywrightConnecting: (callback: () => void) => CleanupFn;
+    onPlaywrightConnected: (callback: () => void) => CleanupFn;
+    onPlaywrightError: (callback: (data: { message: string }) => void) => CleanupFn;
   };
   project: {
     open: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
     start: (options: { useDevServer: boolean }) => Promise<{ success: boolean; url?: string; error?: string }>;
     getInfo: () => Promise<ProjectInfo | null>;
     stopServer: () => Promise<{ success: boolean; error?: string }>;
-    onDetected: (callback: (info: ProjectInfo) => void) => void;
+    onDetected: (callback: (info: ProjectInfo) => void) => CleanupFn;
   };
   server: {
-    onOutput: (callback: (data: string) => void) => void;
-    onReady: (callback: (info: { port: number }) => void) => void;
-    onExit: (callback: (info: { code: number }) => void) => void;
+    onOutput: (callback: (data: string) => void) => CleanupFn;
+    onReady: (callback: (info: { port: number }) => void) => CleanupFn;
+    onExit: (callback: (info: { code: number }) => void) => CleanupFn;
+    onProgress: (callback: (progress: { elapsed: number; status: string; phase: string }) => void) => CleanupFn;
   };
   sendToClaude: (prompt: string, elementContext: string) => Promise<{ success: boolean }>;
 }

@@ -246,111 +246,139 @@ export class BridgeServer {
               break;
             }
 
-            case '/select-option':
+            case '/select-option': {
+              const selector = validateString(body, 'selector');
+              const values = body['values'];
+              if (values === undefined || values === null) {
+                throw new Error('Missing required parameter: values');
+              }
+              if (typeof values !== 'string' && !Array.isArray(values)) {
+                throw new Error('Invalid parameter values: expected string or string[]');
+              }
               if (this.handler.selectOption) {
-                result = await this.handler.selectOption(
-                  body['selector'] as string,
-                  body['values'] as string | string[]
-                );
+                result = await this.handler.selectOption(selector!, values);
               } else {
                 throw new Error('selectOption not supported');
               }
               break;
+            }
 
-            case '/hover':
+            case '/hover': {
+              const selector = validateString(body, 'selector');
               if (this.handler.hover) {
-                await this.handler.hover(body['selector'] as string);
+                await this.handler.hover(selector!);
                 result = { success: true };
               } else {
                 throw new Error('hover not supported');
               }
               break;
+            }
 
-            case '/press-key':
+            case '/press-key': {
+              const key = validateString(body, 'key');
               if (this.handler.pressKey) {
-                await this.handler.pressKey(body['key'] as string);
+                await this.handler.pressKey(key!);
                 result = { success: true };
               } else {
                 throw new Error('pressKey not supported');
               }
               break;
+            }
 
-            case '/drag-and-drop':
+            case '/drag-and-drop': {
+              const source = validateString(body, 'source');
+              const target = validateString(body, 'target');
               if (this.handler.dragAndDrop) {
-                await this.handler.dragAndDrop(
-                  body['source'] as string,
-                  body['target'] as string
-                );
+                await this.handler.dragAndDrop(source!, target!);
                 result = { success: true };
               } else {
                 throw new Error('dragAndDrop not supported');
               }
               break;
+            }
 
-            case '/scroll':
+            case '/scroll': {
+              // Options are optional, but validate if provided
+              const options = body['options'] as { selector?: string; direction?: string; distance?: number } | undefined;
               if (this.handler.scroll) {
-                await this.handler.scroll(body['options'] as { selector?: string; direction?: string; distance?: number });
+                await this.handler.scroll(options ?? {});
                 result = { success: true };
               } else {
                 throw new Error('scroll not supported');
               }
               break;
+            }
 
-            case '/wait-for-response':
+            case '/wait-for-response': {
+              const urlPattern = validateString(body, 'urlPattern');
               if (this.handler.waitForResponse) {
-                result = await this.handler.waitForResponse(body['urlPattern'] as string);
+                result = await this.handler.waitForResponse(urlPattern!);
               } else {
                 throw new Error('waitForResponse not supported');
               }
               break;
+            }
 
-            case '/get-text':
+            case '/get-text': {
+              const selector = validateString(body, 'selector');
               if (this.handler.getText) {
-                result = { text: await this.handler.getText(body['selector'] as string) };
+                result = { text: await this.handler.getText(selector!) };
               } else {
                 throw new Error('getText not supported');
               }
               break;
+            }
 
-            case '/get-attribute':
+            case '/get-attribute': {
+              const selector = validateString(body, 'selector');
+              const name = validateString(body, 'name');
               if (this.handler.getAttribute) {
-                result = { value: await this.handler.getAttribute(body['selector'] as string, body['name'] as string) };
+                result = { value: await this.handler.getAttribute(selector!, name!) };
               } else {
                 throw new Error('getAttribute not supported');
               }
               break;
+            }
 
-            case '/is-visible':
+            case '/is-visible': {
+              const selector = validateString(body, 'selector');
               if (this.handler.isVisible) {
-                result = { visible: await this.handler.isVisible(body['selector'] as string) };
+                result = { visible: await this.handler.isVisible(selector!) };
               } else {
                 throw new Error('isVisible not supported');
               }
               break;
+            }
 
-            case '/is-enabled':
+            case '/is-enabled': {
+              const selector = validateString(body, 'selector');
               if (this.handler.isEnabled) {
-                result = { enabled: await this.handler.isEnabled(body['selector'] as string) };
+                result = { enabled: await this.handler.isEnabled(selector!) };
               } else {
                 throw new Error('isEnabled not supported');
               }
               break;
+            }
 
-            case '/is-checked':
+            case '/is-checked': {
+              const selector = validateString(body, 'selector');
               if (this.handler.isChecked) {
-                result = { checked: await this.handler.isChecked(body['selector'] as string) };
+                result = { checked: await this.handler.isChecked(selector!) };
               } else {
                 throw new Error('isChecked not supported');
               }
               break;
+            }
 
-            case '/evaluate':
+            case '/evaluate': {
+              const script = validateString(body, 'script');
               if (this.handler.evaluate) {
-                result = { result: await this.handler.evaluate(body['script'] as string) };
+                result = { result: await this.handler.evaluate(script!) };
               } else {
                 throw new Error('evaluate not supported');
               }
               break;
+            }
 
             case '/accessibility-snapshot':
               if (this.handler.getAccessibilitySnapshot) {

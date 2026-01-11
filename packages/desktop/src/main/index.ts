@@ -61,6 +61,8 @@ process.on('uncaughtException', (error) => {
     if (result.response === 0) {
       clipboard.writeText(errorMessage);
     }
+  }).catch((err) => {
+    console.error('[ErrorHandler] Failed to show error dialog:', err);
   });
 });
 
@@ -476,15 +478,13 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
     const port = currentProject.suggestedPort || 3000;
     let url: string;
 
-    // Stop any existing servers
-    if (devServerManager) {
-      await devServerManager.stop();
-      devServerManager = null;
-    }
-    if (staticServer) {
-      await staticServer.stop();
-      staticServer = null;
-    }
+    // Stop any existing servers (in parallel since they're independent)
+    await Promise.all([
+      devServerManager?.stop(),
+      staticServer?.stop(),
+    ]);
+    devServerManager = null;
+    staticServer = null;
 
     if (useDevServer && currentProject.devCommand) {
       // Start dev server
@@ -731,6 +731,20 @@ ipcMain.handle('browser:updateBounds', async (_event, width: number, drawerHeigh
   browserPanelWidth = width;
   consoleDrawerHeight = drawerHeight;
   updateBrowserViewBounds(width, drawerHeight);
+});
+
+// IPC handler to temporarily hide/show BrowserView (for modals that need to appear above it)
+// BrowserView is a native element that always renders on top of HTML, so we need to hide it
+ipcMain.handle('browser:setVisible', async (_event, visible: boolean) => {
+  if (!browserView || !mainWindow) return;
+
+  if (visible) {
+    // Restore bounds
+    updateBrowserViewBounds(browserPanelWidth, consoleDrawerHeight);
+  } else {
+    // Move off-screen (setting bounds to 0,0,0,0 can cause issues)
+    browserView.setBounds({ x: -9999, y: -9999, width: 1, height: 1 });
+  }
 });
 
 // Inject unified inspect system - supports both Ctrl+hover and button toggle
@@ -1691,14 +1705,13 @@ ipcMain.handle('project:getInfo', () => {
 
 ipcMain.handle('project:stopServer', async () => {
   try {
-    if (devServerManager) {
-      await devServerManager.stop();
-      devServerManager = null;
-    }
-    if (staticServer) {
-      await staticServer.stop();
-      staticServer = null;
-    }
+    // Stop servers in parallel since they're independent
+    await Promise.all([
+      devServerManager?.stop(),
+      staticServer?.stop(),
+    ]);
+    devServerManager = null;
+    staticServer = null;
     return { success: true };
   } catch (error) {
     return { success: false, error: String(error) };
@@ -1793,15 +1806,13 @@ app.on('window-all-closed', async () => {
     playwrightAdapter = null;
   }
 
-  // Clean up project servers
-  if (devServerManager) {
-    await devServerManager.stop();
-    devServerManager = null;
-  }
-  if (staticServer) {
-    await staticServer.stop();
-    staticServer = null;
-  }
+  // Clean up project servers (in parallel since they're independent)
+  await Promise.all([
+    devServerManager?.stop(),
+    staticServer?.stop(),
+  ]);
+  devServerManager = null;
+  staticServer = null;
 
   if (process.platform !== 'darwin') {
     app.quit();

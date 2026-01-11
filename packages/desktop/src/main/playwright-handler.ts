@@ -550,7 +550,11 @@ export function createPlaywrightBridgeHandler(
 
         const result = await page.evaluate(script);
         return result as ElementInfo | null;
-      } catch {
+      } catch (error) {
+        console.debug('[PlaywrightHandler] inspectElement failed:', {
+          selector,
+          error: error instanceof Error ? error.message : error,
+        });
         return null;
       }
     },
@@ -592,7 +596,12 @@ export function createPlaywrightBridgeHandler(
 
         const result = await page.evaluate(script);
         return result as ElementInfo | null;
-      } catch {
+      } catch (error) {
+        console.debug('[PlaywrightHandler] inspectElementAtPoint failed:', {
+          x,
+          y,
+          error: error instanceof Error ? error.message : error,
+        });
         return null;
       }
     },

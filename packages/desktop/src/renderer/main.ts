@@ -251,6 +251,9 @@ function showProjectModal(project: ProjectInfo) {
   const existing = document.querySelector('.project-modal');
   if (existing) existing.remove();
 
+  // Hide BrowserView so modal appears on top (BrowserView is a native element that renders above HTML)
+  window.claudeLens.browser.setVisible(false);
+
   const modal = document.createElement('div');
   modal.className = 'project-modal';
 
@@ -314,6 +317,8 @@ function showProjectModal(project: ProjectInfo) {
       devBtn.textContent = 'Starting...';
       const result = await window.claudeLens.project.start({ useDevServer: true });
       modal.remove();
+      // Restore BrowserView visibility
+      window.claudeLens.browser.setVisible(true);
       if (result.success && result.url) {
         urlInput.value = result.url;
         browserLoaded = true;
@@ -335,6 +340,8 @@ function showProjectModal(project: ProjectInfo) {
     staticBtn.textContent = 'Starting...';
     const result = await window.claudeLens.project.start({ useDevServer: false });
     modal.remove();
+    // Restore BrowserView visibility
+    window.claudeLens.browser.setVisible(true);
     if (result.success && result.url) {
       urlInput.value = result.url;
       browserLoaded = true;
@@ -350,7 +357,11 @@ function showProjectModal(project: ProjectInfo) {
   const cancelBtn = document.createElement('button');
   cancelBtn.className = 'btn';
   cancelBtn.textContent = 'Cancel';
-  cancelBtn.addEventListener('click', () => modal.remove());
+  cancelBtn.addEventListener('click', () => {
+    modal.remove();
+    // Restore BrowserView visibility
+    window.claudeLens.browser.setVisible(true);
+  });
   buttons.appendChild(cancelBtn);
 
   content.appendChild(buttons);

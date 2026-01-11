@@ -146,7 +146,12 @@ export class PlaywrightAdapter {
       const host2 = parsed2.hostname.replace('127.0.0.1', 'localhost');
 
       return host1 === host2 && parsed1.port === parsed2.port && parsed1.pathname === parsed2.pathname;
-    } catch {
+    } catch (error) {
+      console.debug('[PlaywrightAdapter] URL comparison failed:', {
+        url1,
+        url2,
+        error: error instanceof Error ? error.message : error,
+      });
       return false;
     }
   }
@@ -703,8 +708,10 @@ export class PlaywrightAdapter {
     let body: string | undefined;
     try {
       body = await response.text();
-    } catch {
-      // Response body might not be available
+    } catch (error) {
+      // Response body might not be available (e.g., streaming, binary, or already consumed)
+      console.debug('[PlaywrightAdapter] Could not read response body:',
+        error instanceof Error ? error.message : 'Unknown error');
     }
     return {
       url: response.url(),

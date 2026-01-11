@@ -161,7 +161,7 @@ export interface ClaudeLensAPI {
     inspect: (x: number, y: number) => Promise<ElementInfo | null>;
     highlight: (selector: string) => Promise<void>;
     getBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>;
-    updateBounds: (width: number, drawerHeight?: number) => Promise<void>;
+    updateBounds: (width: number, drawerHeight?: number, panelWidth?: number) => Promise<void>;
     enableInspect: () => Promise<{ success: boolean; error?: string }>;
     disableInspect: () => Promise<void>;
     freezeHover: () => Promise<{ success: boolean; error?: string }>;
@@ -174,13 +174,19 @@ export interface ClaudeLensAPI {
     onPlaywrightConnecting: (callback: () => void) => void;
     onPlaywrightConnected: (callback: () => void) => void;
     onPlaywrightError: (callback: (data: { message: string }) => void) => void;
+    onSetViewport: (callback: (width: number) => void) => void;
+    onResetViewport: (callback: () => void) => void;
+    onPageLoaded: (callback: () => void) => void;
   };
   project: {
     open: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
     start: (options: { useDevServer: boolean }) => Promise<{ success: boolean; url?: string; error?: string }>;
     getInfo: () => Promise<ProjectInfo | null>;
     stopServer: () => Promise<{ success: boolean; error?: string }>;
+    restartServer: () => Promise<{ success: boolean; error?: string }>;
     onDetected: (callback: (info: ProjectInfo) => void) => void;
+    onClosed: (callback: () => void) => void;
+    onLoading: (callback: (info: { name: string; useDevServer: boolean }) => void) => void;
   };
   server: {
     onOutput: (callback: (data: string) => void) => void;

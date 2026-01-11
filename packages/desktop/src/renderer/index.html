@@ -18,7 +18,8 @@
       <div class="header-center">
         <input type="text" id="urlInput" class="url-input" placeholder="http://localhost:3000" value="http://localhost:3000">
         <button id="goBtn" class="btn">Go</button>
-        <button id="refreshBtn" class="btn">↻</button>
+        <button id="refreshBtn" class="btn" title="Refresh page">↻</button>
+        <button id="restartServerBtn" class="btn" title="Restart dev server" disabled>⟳</button>
       </div>
       <div class="header-right">
         <span id="status" class="status">Disconnected</span>
@@ -48,9 +49,20 @@
         </div>
         <div class="panel-content">
           <div id="placeholder" class="placeholder">
-            <div class="placeholder-icon">🔍</div>
+            <div class="placeholder-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="2" y1="12" x2="22" y2="12"></line>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+              </svg>
+            </div>
             <div class="placeholder-title">Browser Preview</div>
             <div class="placeholder-text">Enter a localhost URL and click Go</div>
+          </div>
+          <!-- Loading Overlay -->
+          <div id="loadingOverlay" class="loading-overlay hidden">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Loading...</div>
           </div>
           <!-- BrowserView renders here via Electron -->
         </div>
@@ -75,6 +87,10 @@
       <div class="panel context-panel">
         <div class="panel-header">
           <span>Context</span>
+          <select id="contextModeSelect" class="context-mode-select" title="Context detail level sent to Claude">
+            <option value="lean">Optimised</option>
+            <option value="detailed">Detailed</option>
+          </select>
         </div>
         <div class="panel-content" id="contextContent">
           <!-- Element Description Section (Human-readable) -->
@@ -225,7 +241,13 @@
 
           <!-- Empty State -->
           <div id="contextEmpty" class="context-empty">
-            <div class="empty-icon">🎯</div>
+            <div class="empty-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="6"></circle>
+                <circle cx="12" cy="12" r="2"></circle>
+              </svg>
+            </div>
             <div class="empty-text">Click "Inspect" then select an element</div>
             <div class="empty-hint">or Ctrl+Click any element for quick capture</div>
           </div>

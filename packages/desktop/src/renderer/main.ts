@@ -13,6 +13,23 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { SearchAddon } from '@xterm/addon-search';
 import { CircularBuffer } from '@claude-lens/core';
 import 'xterm/css/xterm.css';
+import {
+  formatElements,
+  formatSequence,
+  formatConsole,
+  type ContextMode,
+} from './context-formatter';
+
+/**
+ * Simple debounce utility - delays function execution until after wait ms of inactivity
+ */
+function debounce<T extends (...args: unknown[]) => unknown>(fn: T, wait: number): (...args: Parameters<T>) => void {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  return (...args: Parameters<T>) => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn(...args), wait);
+  };
+}
 
 /**
  * Wait for fonts to load before opening terminal
@@ -85,11 +102,14 @@ function runFontDiagnostics(): void {
 const urlInput = document.getElementById('urlInput') as HTMLInputElement;
 const goBtn = document.getElementById('goBtn') as HTMLButtonElement;
 const refreshBtn = document.getElementById('refreshBtn') as HTMLButtonElement;
+refreshBtn.disabled = true; // Disabled until a page is loaded
+const restartServerBtn = document.getElementById('restartServerBtn') as HTMLButtonElement;
 const statusEl = document.getElementById('status') as HTMLSpanElement;
 const viewportSelect = document.getElementById('viewportSelect') as HTMLSelectElement;
 
 // Elements - Panels
 const placeholder = document.getElementById('placeholder') as HTMLDivElement;
+const loadingOverlay = document.getElementById('loadingOverlay') as HTMLDivElement;
 const terminalEl = document.getElementById('terminal') as HTMLDivElement;
 const startClaudeBtn = document.getElementById('startClaudeBtn') as HTMLButtonElement;
 const inspectBtn = document.getElementById('inspectBtn') as HTMLButtonElement;
@@ -132,6 +152,7 @@ const componentList = document.getElementById('componentList') as HTMLDivElement
 const elementChips = document.getElementById('elementChips') as HTMLDivElement;
 const promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
 const sendPromptBtn = document.getElementById('sendPromptBtn') as HTMLButtonElement;
+const contextModeSelect = document.getElementById('contextModeSelect') as HTMLSelectElement;
 
 // Elements - Inspect Sequence (Phase 2)
 const inspectSequenceInfo = document.getElementById('inspectSequenceInfo') as HTMLDivElement;
@@ -206,6 +227,9 @@ let inspectMode = false;
 let selectedElements: ElementInfo[] = [];
 let consoleDrawerOpen = false;
 
+// Context mode: 'lean' (optimized for Claude efficiency) or 'detailed' (full info)
+let contextMode: ContextMode = 'lean';
+
 // Inspect sequence state (Phase 2: multi-click capture)
 let inspectSequence: CapturedInteraction[] = [];
 
@@ -233,7 +257,10 @@ function updateBrowserBounds() {
   const panelWidth = browserPanel.offsetWidth;
   const effectiveWidth = viewportWidth > 0 ? Math.min(viewportWidth, panelWidth) : panelWidth;
 
-  window.claudeLens.browser.updateBounds(effectiveWidth, drawerHeight);
+  console.log('[Viewport] updateBrowserBounds:', { viewportWidth, panelWidth, effectiveWidth, drawerHeight });
+
+  // Pass both panelWidth and effectiveWidth so main can center the browser
+  window.claudeLens.browser.updateBounds(effectiveWidth, drawerHeight, panelWidth);
 }
 
 // Console message buffer (last 50 messages)
@@ -322,9 +349,14 @@ function showProjectModal(project: ProjectInfo) {
       if (result.success && result.url) {
         urlInput.value = result.url;
         browserLoaded = true;
+        refreshBtn.disabled = false;
+        restartServerBtn.disabled = false;
         placeholder.classList.add('hidden');
         setStatus('Connected', true);
         browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
+        // Update bounds now that browser is loaded (panel may have resized during load)
+        console.log('[Viewport] Browser loaded, updating bounds');
+        updateBrowserBounds();
       } else {
         alert(`Failed to start dev server: ${result.error}`);
       }
@@ -333,8 +365,8 @@ function showProjectModal(project: ProjectInfo) {
   }
 
   const staticBtn = document.createElement('button');
-  staticBtn.className = project.devCommand ? 'btn' : 'btn btn-primary';
-  staticBtn.textContent = 'Start with Built-in Server';
+  staticBtn.className = project.devCommand ? 'btn btn-secondary' : 'btn btn-primary';
+  staticBtn.textContent = 'Use Built-in Server';
   staticBtn.addEventListener('click', async () => {
     staticBtn.disabled = true;
     staticBtn.textContent = 'Starting...';
@@ -345,9 +377,12 @@ function showProjectModal(project: ProjectInfo) {
     if (result.success && result.url) {
       urlInput.value = result.url;
       browserLoaded = true;
+      refreshBtn.disabled = false;
+      restartServerBtn.disabled = false;
       placeholder.classList.add('hidden');
       setStatus('Connected', true);
       browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
+      updateBrowserBounds();
     } else {
       alert(`Failed to start server: ${result.error}`);
     }
@@ -355,7 +390,7 @@ function showProjectModal(project: ProjectInfo) {
   buttons.appendChild(staticBtn);
 
   const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'btn';
+  cancelBtn.className = 'btn btn-ghost';
   cancelBtn.textContent = 'Cancel';
   cancelBtn.addEventListener('click', () => {
     modal.remove();
@@ -591,6 +626,29 @@ async function init() {
     showProjectModal(project);
   });
 
+  // Listen for project close (File > Close Project)
+  window.claudeLens.project.onClosed(() => {
+    browserLoaded = false;
+    refreshBtn.disabled = true;
+    restartServerBtn.disabled = true;
+    placeholder.classList.remove('hidden');
+    urlInput.value = 'http://localhost:3000';
+    setStatus('Disconnected');
+    browserHelpText.textContent = '';
+    // Reset Claude state
+    claudeRunning = false;
+    startClaudeBtn.textContent = 'Start Claude';
+    terminal.clear();
+  });
+
+  // Listen for project loading (recent projects flow - shows loading overlay)
+  window.claudeLens.project.onLoading((info) => {
+    placeholder.classList.add('hidden');
+    loadingOverlay.classList.remove('hidden');
+    const serverType = info.useDevServer ? 'dev server' : 'static server';
+    setStatus(`Loading ${info.name} (${serverType})...`);
+  });
+
   // Handle Claude auto-starting when a project opens
   window.claudeLens.pty.onAutoStarted(() => {
     claudeRunning = true;
@@ -605,10 +663,27 @@ async function init() {
     }, 300);
   });
 
-  // Handle server ready event
+  // Handle server ready event (fired for both modal flow and recent projects flow)
   window.claudeLens.server.onReady((info) => {
     setStatus(`Server ready on port ${info.port}`, true);
+    // Ensure browserLoaded is true for recent projects flow (modal flow sets it separately)
+    if (!browserLoaded) {
+      browserLoaded = true;
+      refreshBtn.disabled = false;
+      restartServerBtn.disabled = false;
+      placeholder.classList.add('hidden');
+      browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
+      urlInput.value = `http://localhost:${info.port}`;
+      console.log('[Viewport] Server ready, browser loaded, updating bounds');
+    }
     updateBrowserBounds();
+  });
+
+  // Handle page fully loaded event (fired when BrowserView finishes loading)
+  // This is the right time to hide loading overlay - after page is actually rendered
+  window.claudeLens.browser.onPageLoaded(() => {
+    loadingOverlay.classList.add('hidden');
+    console.log('[Viewport] Page fully loaded, hiding loading overlay');
   });
 
   // Handle server exit event
@@ -1443,17 +1518,26 @@ goBtn.addEventListener('click', async () => {
   consoleBuffer.clear();
   updateConsoleUI();
 
+  // Show loading spinner
+  placeholder.classList.add('hidden');
+  loadingOverlay.classList.remove('hidden');
   setStatus('Loading...');
+
   const result = await window.claudeLens.browser.navigate(url);
 
+  // Hide loading spinner
+  loadingOverlay.classList.add('hidden');
+
   if (!result.success) {
+    placeholder.classList.remove('hidden');
     setStatus('Failed to load');
     alert(`Could not load URL: ${result.error}`);
     return;
   }
 
   browserLoaded = true;
-  placeholder.classList.add('hidden');
+  refreshBtn.disabled = false;
+  restartServerBtn.disabled = false;
   setStatus('Connected', true);
   browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
 
@@ -1467,7 +1551,30 @@ urlInput.addEventListener('keypress', (e) => {
 
 refreshBtn.addEventListener('click', async () => {
   if (!browserLoaded) return;
+  loadingOverlay.classList.remove('hidden');
+  setStatus('Refreshing...');
   await window.claudeLens.browser.navigate(urlInput.value);
+  loadingOverlay.classList.add('hidden');
+  setStatus('Connected', true);
+});
+
+// Restart server button
+restartServerBtn.addEventListener('click', async () => {
+  if (restartServerBtn.disabled) return;
+
+  restartServerBtn.disabled = true;
+  loadingOverlay.classList.remove('hidden');
+  setStatus('Restarting server...');
+
+  const result = await window.claudeLens.project.restartServer();
+
+  if (result.success) {
+    setStatus('Server restarted', true);
+  } else {
+    setStatus('Restart failed: ' + (result.error || 'Unknown error'));
+    loadingOverlay.classList.add('hidden');
+  }
+  // Button will be re-enabled when server:ready fires
 });
 
 // Viewport preset widths (0 = full width / no constraint)
@@ -1484,6 +1591,61 @@ const viewportPresets: Record<string, number> = {
 viewportSelect.addEventListener('change', () => {
   const preset = viewportSelect.value;
   viewportWidth = viewportPresets[preset] || 0;
+  updateBrowserBounds();
+});
+
+// Listen for viewport changes from MCP tools (Claude can change viewport programmatically)
+window.claudeLens.browser.onSetViewport((width: number) => {
+  // Find matching preset or set as custom
+  const presetByWidth: Record<number, string> = {
+    0: 'full',
+    1280: 'desktop',
+    1024: 'tablet-landscape',
+    768: 'tablet',
+    425: 'mobile-large',
+    375: 'mobile',
+  };
+
+  const preset = presetByWidth[width];
+  if (preset) {
+    viewportSelect.value = preset;
+    viewportWidth = width;
+  } else {
+    // Custom width - set to full and apply custom constraint
+    viewportSelect.value = 'full';
+    viewportWidth = width;
+  }
+
+  updateBrowserBounds();
+  // Show user feedback
+  const widthLabel = viewportWidth > 0 ? `${viewportWidth}px` : 'Full Width';
+  setStatus(`Viewport: ${widthLabel}`);
+});
+
+// Update browser bounds on window resize (ensures bounds update after maximize/restore)
+window.addEventListener('resize', debounce(() => {
+  if (browserLoaded) {
+    console.log('[Viewport] Window resize detected, updating bounds');
+    updateBrowserBounds();
+  }
+}, 100));
+
+// Use ResizeObserver for more reliable panel size tracking
+const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
+const panelResizeObserver = new ResizeObserver(debounce(() => {
+  if (browserLoaded) {
+    console.log('[Viewport] Panel resize detected, updating bounds');
+    updateBrowserBounds();
+  }
+}, 50));
+panelResizeObserver.observe(browserPanel);
+
+// Reset viewport to full width when starting a new project
+window.claudeLens.browser.onResetViewport(() => {
+  console.log('[Viewport] Received resetViewport, current viewportWidth:', viewportWidth);
+  viewportWidth = 0;
+  viewportSelect.value = 'full';
+  console.log('[Viewport] Reset to full width, calling updateBrowserBounds');
   updateBrowserBounds();
 });
 
@@ -1594,19 +1756,8 @@ sendSequenceBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Format lean sequence context
-  let sequenceContext = `## Interaction Sequence (${inspectSequence.length} steps)\n\n`;
-
-  for (let i = 0; i < inspectSequence.length; i++) {
-    const interaction = inspectSequence[i];
-    if (!interaction) continue;
-    const el = interaction.element;
-
-    sequenceContext += `${i + 1}. \`${el.selector}\``;
-    if (el.text) sequenceContext += ` "${el.text.slice(0, 30)}${el.text.length > 30 ? '...' : ''}"`;
-    sequenceContext += '\n';
-  }
-
+  // Format sequence using optimized formatter (prioritizes file:line > component > selector)
+  const sequenceContext = formatSequence(inspectSequence);
   const fullPrompt = `Here is the captured interaction sequence:\n\n${sequenceContext}`;
   const result = await window.claudeLens.sendToClaude(fullPrompt, '');
 
@@ -1669,14 +1820,9 @@ consoleSendBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Format lean console context
-  const consoleLines = consoleBuffer.toArray().map(m => {
-    return `[${m.level.toUpperCase()}] ${m.message}`;
-  });
-
-  const context = `## Console (${consoleBuffer.length} messages)\n\`\`\`\n${consoleLines.join('\n')}\n\`\`\``;
-
-  const result = await window.claudeLens.sendToClaude(`Here are the browser console messages:\n\n${context}`, '');
+  // Format console using optimized formatter
+  const consoleContext = formatConsole(consoleBuffer.toArray());
+  const result = await window.claudeLens.sendToClaude(`Here are the browser console messages:\n\n${consoleContext}`, '');
 
   if (result.success) {
     terminal.focus();
@@ -1708,101 +1854,14 @@ sendPromptBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Format rich element context with Tailwind translations
-  const elementContexts = selectedElements.map(el => {
-    let ctx = `## <${el.tagName}${el.id ? '#' + el.id : ''}>\n`;
-    ctx += `**Selector:** \`${el.selector}\`\n`;
-
-    // Primary edit target (most important for Claude)
-    if (el.framework?.components[0]?.source) {
-      const src = el.framework.components[0].source;
-      ctx += `**Edit:** \`${src.fileName}:${src.lineNumber}\`\n`;
-    }
-
-    if (el.text) ctx += `**Text:** "${el.text.slice(0, 50)}${el.text.length > 50 ? '...' : ''}"\n`;
-
-    // CSS classes with Tailwind translations
-    if (el.classes && el.classes.length > 0) {
-      const tw: Record<string, string> = {
-        // Typography
-        'text-xs': '12px', 'text-sm': '14px', 'text-base': '16px', 'text-lg': '18px',
-        'text-xl': '20px', 'text-2xl': '24px', 'text-3xl': '30px', 'text-4xl': '36px',
-        'text-5xl': '48px', 'font-thin': '100', 'font-light': '300', 'font-normal': '400',
-        'font-medium': '500', 'font-semibold': '600', 'font-bold': '700', 'font-extrabold': '800',
-        'italic': 'italic', 'underline': 'underline', 'tracking-tight': '-0.025em',
-        'tracking-wide': '0.025em', 'leading-tight': 'lh:1.25', 'leading-relaxed': 'lh:1.625',
-        // Layout
-        'flex': 'flex', 'grid': 'grid', 'block': 'block', 'inline': 'inline', 'hidden': 'hidden',
-        'flex-row': 'row', 'flex-col': 'column', 'items-center': 'align-center',
-        'items-start': 'align-start', 'items-end': 'align-end', 'justify-center': 'center',
-        'justify-between': 'space-between', 'justify-start': 'start',
-        'gap-1': '4px', 'gap-2': '8px', 'gap-4': '16px', 'gap-6': '24px', 'gap-8': '32px',
-        // Spacing
-        'p-0': '0', 'p-1': '4px', 'p-2': '8px', 'p-4': '16px', 'p-6': '24px', 'p-8': '32px',
-        'm-0': '0', 'm-auto': 'auto', 'm-1': '4px', 'm-2': '8px', 'm-4': '16px',
-        'px-4': 'x:16px', 'py-2': 'y:8px', 'px-6': 'x:24px', 'py-4': 'y:16px',
-        // Sizing
-        'w-full': '100%', 'w-auto': 'auto', 'h-full': '100%', 'h-auto': 'auto',
-        'max-w-md': '448px', 'max-w-lg': '512px', 'max-w-xl': '576px',
-        // Position
-        'relative': 'relative', 'absolute': 'absolute', 'fixed': 'fixed', 'sticky': 'sticky',
-        // Border/radius
-        'rounded': '4px', 'rounded-md': '6px', 'rounded-lg': '8px', 'rounded-xl': '12px',
-        'rounded-full': '9999px', 'border': '1px', 'border-2': '2px',
-        // Effects
-        'shadow': 'shadow-sm', 'shadow-md': 'shadow-md', 'shadow-lg': 'shadow-lg',
-        'opacity-50': '0.5', 'cursor-pointer': 'clickable',
-        // Colors
-        'bg-white': '#fff', 'bg-black': '#000', 'text-white': '#fff', 'text-black': '#000',
-        'text-gray-500': '#6b7280', 'text-gray-700': '#374151', 'text-gray-900': '#111827',
-        'bg-gray-100': '#f3f4f6', 'bg-gray-800': '#1f2937', 'bg-blue-500': '#3b82f6',
-        'bg-red-500': '#ef4444', 'bg-green-500': '#22c55e',
-      };
-
-      // Translate Tailwind classes (max 12 to avoid bloat)
-      const classInfo = el.classes.slice(0, 12).map(c => {
-        if (tw[c]) return `${c}(${tw[c]})`;
-        // Handle responsive/state prefixes
-        const match = c.match(/^(hover:|focus:|dark:|sm:|md:|lg:)(.+)$/);
-        if (match && tw[match[2]]) return `${c}(${tw[match[2]]})`;
-        return c;
-      });
-      ctx += `**Classes:** ${classInfo.join(' ')}\n`;
-    }
-
-    // Key computed styles
-    if (el.styles) {
-      const keyStyles: string[] = [];
-      if (el.styles.color && el.styles.color !== 'rgb(0, 0, 0)') keyStyles.push(`color:${el.styles.color}`);
-      if (el.styles.backgroundColor && el.styles.backgroundColor !== 'rgba(0, 0, 0, 0)') keyStyles.push(`bg:${el.styles.backgroundColor}`);
-      if (el.styles.fontSize) keyStyles.push(`font:${el.styles.fontSize}`);
-      if (keyStyles.length > 0) ctx += `**Computed:** ${keyStyles.join(', ')}\n`;
-    }
-
-    // Key attributes
-    if (el.attributes) {
-      const keyAttrs: string[] = [];
-      for (const attr of ['href', 'src', 'alt', 'type', 'placeholder', 'aria-label', 'data-testid', 'role']) {
-        if (el.attributes[attr]) {
-          const val = el.attributes[attr].slice(0, 40);
-          keyAttrs.push(`${attr}="${val}${el.attributes[attr].length > 40 ? '...' : ''}"`);
-        }
-      }
-      if (keyAttrs.length > 0) ctx += `**Attrs:** ${keyAttrs.join(', ')}\n`;
-    }
-
-    // Parent context (DOM hierarchy)
-    if (el.parentChain && el.parentChain.length > 0) {
-      const parents = el.parentChain.slice(0, 3).map(p => p.description).join(' → ');
-      ctx += `**In:** ${parents}\n`;
-    }
-
-    return ctx;
-  }).join('\n');
+  // Format element context using the optimized formatter
+  // Lean mode prioritizes: file:line > component name > searchable text
+  // Detailed mode includes: selector, classes, styles, position
+  const elementContext = formatElements(selectedElements, { mode: contextMode });
 
   // If no prompt, use a default instruction
   const finalPrompt = prompt || 'Here is the element I selected:';
-  const fullPrompt = `${finalPrompt}\n\n${elementContexts}`;
+  const fullPrompt = `${finalPrompt}\n\n${elementContext}`;
   const result = await window.claudeLens.sendToClaude(fullPrompt, '');
 
   if (result.success) {
@@ -1830,6 +1889,11 @@ promptInput.addEventListener('keypress', (e) => {
     e.preventDefault();
     sendPromptBtn.click();
   }
+});
+
+// Context mode toggle (lean vs detailed)
+contextModeSelect.addEventListener('change', () => {
+  contextMode = contextModeSelect.value as ContextMode;
 });
 
 // Status helper

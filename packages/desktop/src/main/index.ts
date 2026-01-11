@@ -77,6 +77,54 @@ let currentProject: ProjectInfo | null = null;
 let devServerManager: DevServerManager | null = null;
 let staticServer: StaticServer | null = null;
 
+// Recent projects management
+interface RecentProject {
+  path: string;
+  name: string;
+  lastOpened: number;
+  useDevServer: boolean; // Remember the server type preference
+}
+const MAX_RECENT_PROJECTS = 5;
+let recentProjects: RecentProject[] = [];
+
+function getRecentProjectsPath(): string {
+  return path.join(app.getPath('userData'), 'recent-projects.json');
+}
+
+async function loadRecentProjects(): Promise<void> {
+  try {
+    const data = await fsPromises.readFile(getRecentProjectsPath(), 'utf-8');
+    recentProjects = JSON.parse(data);
+  } catch {
+    recentProjects = [];
+  }
+}
+
+async function saveRecentProjects(): Promise<void> {
+  try {
+    await fsPromises.writeFile(getRecentProjectsPath(), JSON.stringify(recentProjects, null, 2));
+  } catch (error) {
+    console.debug('[RecentProjects] Failed to save:', error);
+  }
+}
+
+async function addRecentProject(projectPath: string, projectName: string, useDevServer: boolean): Promise<void> {
+  // Remove if already exists
+  recentProjects = recentProjects.filter(p => p.path !== projectPath);
+  // Add to front
+  recentProjects.unshift({
+    path: projectPath,
+    name: projectName,
+    lastOpened: Date.now(),
+    useDevServer,
+  });
+  // Limit to max
+  recentProjects = recentProjects.slice(0, MAX_RECENT_PROJECTS);
+  await saveRecentProjects();
+  // Update menu to show new recent project
+  createMenu();
+}
+
 // Console message buffer for MCP server
 interface ConsoleMessage {
   level: string;
@@ -90,6 +138,26 @@ const consoleBuffer = new CircularBuffer<ConsoleMessage>(MAX_CONSOLE_MESSAGES);
  * Create the application menu
  */
 function createMenu(): void {
+  // Build recent projects submenu
+  const recentProjectsSubmenu: Electron.MenuItemConstructorOptions[] = recentProjects.length > 0
+    ? [
+        ...recentProjects.map((project, index) => ({
+          label: `${index + 1}. ${project.name}`,
+          sublabel: project.path,
+          click: () => openRecentProject(project),
+        })),
+        { type: 'separator' as const },
+        {
+          label: 'Clear Recent Projects',
+          click: async () => {
+            recentProjects = [];
+            await saveRecentProjects();
+            createMenu();
+          },
+        },
+      ]
+    : [{ label: 'No Recent Projects', enabled: false }];
+
   const template: Electron.MenuItemConstructorOptions[] = [
     {
       label: 'File',
@@ -98,6 +166,26 @@ function createMenu(): void {
           label: 'Open Project...',
           accelerator: 'CmdOrCtrl+O',
           click: () => openProjectDialog(),
+        },
+        {
+          label: 'Open Recent',
+          submenu: recentProjectsSubmenu,
+        },
+        {
+          label: 'Close Project',
+          accelerator: 'CmdOrCtrl+W',
+          click: () => closeProject(),
+        },
+        { type: 'separator' },
+        {
+          label: 'Restart App',
+          accelerator: 'CmdOrCtrl+Shift+R',
+          enabled: process.env.NODE_ENV !== 'development',
+          click: () => {
+            // Only works in production - in dev mode, use terminal to restart
+            app.relaunch();
+            app.exit(0);
+          },
         },
         { type: 'separator' },
         { role: 'quit' },
@@ -174,9 +262,32 @@ async function openProjectDialog(): Promise<void> {
 }
 
 /**
+ * Close the current project and reset state
+ */
+async function closeProject(): Promise<void> {
+  // Stop any running servers and Claude Code
+  await Promise.all([
+    devServerManager?.stop(),
+    staticServer?.stop(),
+    ptyManager?.dispose(),
+  ]);
+  devServerManager = null;
+  staticServer = null;
+  currentProject = null;
+
+  // Clear the BrowserView
+  if (browserView) {
+    browserView.webContents.loadURL('about:blank');
+  }
+
+  // Notify renderer to reset UI
+  mainWindow?.webContents.send('project:closed');
+}
+
+/**
  * Open and analyze a project folder
  */
-async function openProject(projectPath: string): Promise<void> {
+async function openProject(projectPath: string, skipModal = false): Promise<void> {
   try {
     // Analyze the project
     currentProject = await analyzeProject(projectPath);
@@ -192,11 +303,46 @@ async function openProject(projectPath: string): Promise<void> {
       }
     }
 
-    // Send to renderer to show dialog
-    mainWindow?.webContents.send('project:detected', currentProject);
+    // Send to renderer to show dialog (unless opening from recent projects)
+    if (!skipModal) {
+      mainWindow?.webContents.send('project:detected', currentProject);
+    }
   } catch (err) {
     console.error('Failed to analyze project:', err);
     dialog.showErrorBox('Error', `Failed to open project: ${err}`);
+  }
+}
+
+/**
+ * Open a recent project directly (skip modal, use stored server preference)
+ */
+async function openRecentProject(recent: RecentProject): Promise<void> {
+  // Analyze the project (skip modal since we already know server preference)
+  await openProject(recent.path, true);
+
+  // If project was loaded successfully, start it with stored preference
+  if (currentProject) {
+    // Notify renderer to show loading state
+    mainWindow?.webContents.send('project:loading', {
+      name: currentProject.name,
+      useDevServer: recent.useDevServer,
+    });
+
+    // Hide BrowserView before starting (will be restored in startProject)
+    if (browserView && mainWindow) {
+      browserView.setBounds({ x: -9999, y: -9999, width: 1, height: 1 });
+    }
+
+    // Start with the remembered server preference
+    const result = await startProject(recent.useDevServer);
+
+    if (result.success) {
+      // Restore BrowserView visibility
+      updateBrowserViewBounds();
+    } else {
+      // Show error to user
+      dialog.showErrorBox('Failed to Start Project', result.error || 'Unknown error');
+    }
   }
 }
 
@@ -267,6 +413,11 @@ Use the \`claude_lens/*\` MCP tools for browser automation:
 | \`claude_lens/go_forward\` | Browser forward button |
 | \`claude_lens/handle_dialog\` | Accept or dismiss alert/confirm dialogs |
 | \`claude_lens/evaluate\` | Execute custom JavaScript |
+
+### Responsive Testing
+| Tool | Purpose |
+|------|---------|
+| \`claude_lens/set_viewport\` | Change viewport size (presets: full, desktop, tablet, mobile, or custom width) |
 
 ## CSS Selectors
 
@@ -478,13 +629,20 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
     const port = currentProject.suggestedPort || 3000;
     let url: string;
 
-    // Stop any existing servers (in parallel since they're independent)
+    // Stop any existing servers and Claude (in parallel since they're independent)
     await Promise.all([
       devServerManager?.stop(),
       staticServer?.stop(),
+      ptyManager?.dispose(),
     ]);
     devServerManager = null;
     staticServer = null;
+
+    // Reset viewport to full width when starting a new project
+    console.log('[Viewport] Resetting viewport to full width, was:', browserViewportWidth);
+    browserViewportWidth = 0;
+    mainWindow?.webContents.send('browser:resetViewport');
+    console.log('[Viewport] Sent browser:resetViewport to renderer');
 
     if (useDevServer && currentProject.devCommand) {
       // Start dev server
@@ -526,6 +684,8 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
       const actualPort = serverManager.getActualPort() || port;
       url = `http://localhost:${actualPort}`;
       console.log(`Dev server started on port ${actualPort} (suggested: ${port})`);
+      // Small delay to let Vite finish initializing after port opens
+      await new Promise(resolve => setTimeout(resolve, 500));
     } else {
       // Use built-in static server
       staticServer = new StaticServer();
@@ -579,17 +739,17 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
     // Inject Claude Lens context into project before starting Claude
     await injectClaudeLensContext(currentProject.path);
 
-    // Only start Claude if not already running
-    // If already running, keep the existing session (user can manually restart if needed)
-    if (!ptyManager?.isRunning()) {
-      const newPtyManager = new PtyManager();
-      ptyManager = newPtyManager;
-      setupPtyForwarding();
-      await newPtyManager.start({ cwd: currentProject.path });
+    // Start Claude in the new project directory
+    const newPtyManager = new PtyManager();
+    ptyManager = newPtyManager;
+    setupPtyForwarding();
+    await newPtyManager.start({ cwd: currentProject.path });
 
-      // Notify renderer that Claude started automatically
-      mainWindow?.webContents.send('pty:autoStarted');
-    }
+    // Notify renderer that Claude started automatically
+    mainWindow?.webContents.send('pty:autoStarted');
+
+    // Add to recent projects with server preference
+    await addRecentProject(currentProject.path, currentProject.name, useDevServer);
 
     return { success: true, url };
   } catch (err) {
@@ -642,6 +802,50 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
   }
 }
 
+/**
+ * Restart the currently running server (dev or static)
+ * Used by both the UI button and MCP tool
+ */
+async function restartServer(): Promise<{ success: boolean; error?: string }> {
+  if (!currentProject) {
+    return { success: false, error: 'No project loaded' };
+  }
+
+  // Determine which mode was running
+  const wasDevServer = devServerManager !== null;
+  const wasStaticServer = staticServer !== null;
+
+  if (!wasDevServer && !wasStaticServer) {
+    return { success: false, error: 'No server running to restart' };
+  }
+
+  try {
+    console.log('[Server] Restarting server...');
+
+    // Stop current server
+    await Promise.all([
+      devServerManager?.stop(),
+      staticServer?.stop(),
+    ]);
+    devServerManager = null;
+    staticServer = null;
+
+    // Brief pause to ensure port is released
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Restart with same mode
+    const result = await startProject(wasDevServer);
+
+    if (result.success) {
+      console.log('[Server] Restart complete');
+    }
+
+    return result;
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -683,11 +887,12 @@ async function createWindow() {
   mainWindow.on('restore', () => setTimeout(() => updateBrowserViewBounds(), 100));
 }
 
-// Track browser panel width and console drawer height for bounds calculation
+// Track browser panel width, viewport width, and console drawer height for bounds calculation
 let browserPanelWidth = 0;
+let browserViewportWidth = 0; // The constrained viewport width (0 = full panel width)
 let consoleDrawerHeight = 0;
 
-function updateBrowserViewBounds(panelWidth?: number, drawerHeight?: number) {
+function updateBrowserViewBounds(viewportWidth?: number, drawerHeight?: number, actualPanelWidth?: number) {
   if (!mainWindow || !browserView) return;
 
   const bounds = mainWindow.getBounds();
@@ -702,7 +907,11 @@ function updateBrowserViewBounds(panelWidth?: number, drawerHeight?: number) {
   const availableWidth = bounds.width - contextPanelWidth - resizerWidth;
   // Browser panel gets ~50% of remaining space (equal with claude panel)
   const defaultWidth = Math.floor(availableWidth * 0.5);
-  const width = panelWidth || browserPanelWidth || defaultWidth;
+
+  // actualPanelWidth = the full panel width from renderer
+  // viewportWidth = the constrained viewport width (for responsive testing)
+  const panelWidth = actualPanelWidth || browserPanelWidth || defaultWidth;
+  const width = viewportWidth || panelWidth;
 
   // Subtract console drawer height if open
   const effectiveDrawerHeight = drawerHeight !== undefined ? drawerHeight : consoleDrawerHeight;
@@ -713,24 +922,31 @@ function updateBrowserViewBounds(panelWidth?: number, drawerHeight?: number) {
     return;
   }
 
-  browserPanelWidth = width;
+  browserPanelWidth = panelWidth;
+  browserViewportWidth = viewportWidth || 0;
   if (drawerHeight !== undefined) {
     consoleDrawerHeight = drawerHeight;
   }
 
-  browserView.setBounds({
-    x: 0,
+  // Calculate x offset to center the browser when viewport is constrained
+  const xOffset = width < panelWidth ? Math.floor((panelWidth - width) / 2) : 0;
+
+  const newBounds = {
+    x: xOffset,
     y: headerHeight + panelHeaderHeight,
     width: Math.round(width),
     height: Math.round(height),
-  });
+  };
+  console.log('[Viewport] setBounds:', newBounds, 'browserViewportWidth:', browserViewportWidth, 'input viewportWidth:', viewportWidth);
+  browserView.setBounds(newBounds);
 }
 
 // IPC handler to update browser panel width from renderer
-ipcMain.handle('browser:updateBounds', async (_event, width: number, drawerHeight: number) => {
-  browserPanelWidth = width;
+// panelWidth is the actual panel width, width is the constrained viewport width
+ipcMain.handle('browser:updateBounds', async (_event, width: number, drawerHeight: number, panelWidth?: number) => {
+  browserPanelWidth = panelWidth || width;
   consoleDrawerHeight = drawerHeight;
-  updateBrowserViewBounds(width, drawerHeight);
+  updateBrowserViewBounds(width, drawerHeight, panelWidth);
 });
 
 // IPC handler to temporarily hide/show BrowserView (for modals that need to appear above it)
@@ -739,8 +955,8 @@ ipcMain.handle('browser:setVisible', async (_event, visible: boolean) => {
   if (!browserView || !mainWindow) return;
 
   if (visible) {
-    // Restore bounds
-    updateBrowserViewBounds(browserPanelWidth, consoleDrawerHeight);
+    // Restore bounds with viewport constraint for centering
+    updateBrowserViewBounds(browserViewportWidth || undefined, consoleDrawerHeight, browserPanelWidth);
   } else {
     // Move off-screen (setting bounds to 0,0,0,0 can cause issues)
     browserView.setBounds({ x: -9999, y: -9999, width: 1, height: 1 });
@@ -1607,6 +1823,8 @@ function setupBrowserViewMessaging() {
   browserView.webContents.on('did-finish-load', async () => {
     await injectInspectSystem();
     console.log('[BrowserView] Re-injected inspect system after page load');
+    // Notify renderer that page finished loading (for hiding loading overlay)
+    mainWindow?.webContents.send('browser:loaded');
   });
 
   // Reset Ctrl state when BrowserView loses focus (prevents stuck Ctrl)
@@ -1718,6 +1936,10 @@ ipcMain.handle('project:stopServer', async () => {
   }
 });
 
+ipcMain.handle('project:restartServer', async () => {
+  return restartServer();
+});
+
 // Send element to Claude - the key seamless integration!
 ipcMain.handle('send-to-claude', async (_event, prompt: string, elementContext: string) => {
   if (!ptyManager) return { success: false, error: 'Claude not running' };
@@ -1746,6 +1968,7 @@ function setupPtyForwarding() {
 
 // App lifecycle
 app.whenReady().then(async () => {
+  await loadRecentProjects();
   createMenu();
   await createWindow();
   setupPtyForwarding();
@@ -1776,7 +1999,13 @@ app.whenReady().then(async () => {
     bridgeServer.setHandler(createPlaywrightBridgeHandler(
       () => browserView,
       () => consoleBuffer.toArray(),
-      () => playwrightAdapter
+      () => playwrightAdapter,
+      // Viewport callback - sends width to renderer
+      (width: number) => {
+        mainWindow?.webContents.send('browser:setViewport', width);
+      },
+      // Restart server callback - for MCP tool
+      restartServer
     ));
     await bridgeServer.start();
     console.log('Bridge server started on port 9333 (Playwright-powered)');

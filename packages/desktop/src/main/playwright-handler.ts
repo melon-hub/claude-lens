@@ -49,6 +49,10 @@ export interface PlaywrightBridgeHandler extends BridgeHandler {
   goForward(): Promise<void>;
   // Dialog handling
   setDialogHandler(action: 'accept' | 'dismiss'): void;
+  // Viewport control
+  setViewport(width: number): void | Promise<void>;
+  // Server control
+  restartServer(): Promise<{ success: boolean; error?: string }>;
 }
 
 /**
@@ -413,7 +417,9 @@ const PHASE4_EDGE_CASE_HELPERS = `
 export function createPlaywrightBridgeHandler(
   getBrowserView: () => BrowserView | null,
   getConsoleBuffer: () => LocalConsoleMessage[],
-  getPlaywrightAdapter: () => PlaywrightAdapter | null
+  getPlaywrightAdapter: () => PlaywrightAdapter | null,
+  onSetViewport?: (width: number) => void,
+  onRestartServer?: () => Promise<{ success: boolean; error?: string }>
 ): PlaywrightBridgeHandler {
   // Track dialog handling preference
   let dialogAction: 'accept' | 'dismiss' = 'dismiss';
@@ -818,6 +824,21 @@ export function createPlaywrightBridgeHandler(
           }
         });
       }
+    },
+
+    async setViewport(width: number): Promise<void> {
+      if (onSetViewport) {
+        onSetViewport(width);
+        // Wait for bounds update to complete and Playwright to stabilize
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    },
+
+    async restartServer(): Promise<{ success: boolean; error?: string }> {
+      if (onRestartServer) {
+        return await onRestartServer();
+      }
+      return { success: false, error: 'restartServer not configured' };
     },
   };
 }

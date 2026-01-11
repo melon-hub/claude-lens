@@ -55,6 +55,8 @@ export interface BridgeHandler {
   goBack?(): Promise<void>;
   goForward?(): Promise<void>;
   setDialogHandler?(action: 'accept' | 'dismiss'): void;
+  setViewport?(width: number): void | Promise<void>;
+  restartServer?(): Promise<{ success: boolean; error?: string }>;
 }
 
 const DEFAULT_PORT = 9333;
@@ -415,6 +417,27 @@ export class BridgeServer {
               }
               break;
 
+            case '/set-viewport':
+              if (this.handler.setViewport) {
+                const width = body['width'];
+                if (typeof width !== 'number') {
+                  throw new Error('width must be a number');
+                }
+                await this.handler.setViewport(width);
+                result = { success: true };
+              } else {
+                throw new Error('setViewport not supported');
+              }
+              break;
+
+            case '/restart-server':
+              if (this.handler.restartServer) {
+                result = await this.handler.restartServer();
+              } else {
+                throw new Error('restartServer not supported');
+              }
+              break;
+
             default:
               res.writeHead(404);
               res.end(JSON.stringify({ error: 'Not found' }));
@@ -639,5 +662,13 @@ export class BridgeClient {
 
   async setDialogHandler(action: 'accept' | 'dismiss'): Promise<void> {
     await this.request('/set-dialog-handler', { action });
+  }
+
+  async setViewport(width: number): Promise<void> {
+    await this.request('/set-viewport', { width });
+  }
+
+  async restartServer(): Promise<{ success: boolean; error?: string }> {
+    return await this.request('/restart-server') as { success: boolean; error?: string };
   }
 }

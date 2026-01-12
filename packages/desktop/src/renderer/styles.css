@@ -88,9 +88,18 @@ body {
   flex-shrink: 0;
 }
 
-.header-left,
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
 .header-right {
-  flex: 0 0 150px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .header-center {
@@ -108,7 +117,6 @@ body {
 .version {
   font-size: 11px;
   color: var(--text-muted);
-  margin-left: 8px;
   font-weight: 400;
 }
 
@@ -1613,9 +1621,3 @@ body.drag-over::after {
   font-size: 10px;
 }
 
-/* Header right - allow flexible width for status bar */
-.header-right {
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: flex-end;
-}

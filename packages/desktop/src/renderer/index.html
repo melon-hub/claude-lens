@@ -14,15 +14,26 @@
       <div class="header-left">
         <span class="logo">Claude Lens</span>
         <span id="appVersion" class="version"></span>
+        <div class="project-dropdown-container">
+          <select id="projectDropdown" class="project-dropdown" title="Switch project">
+            <option value="">No project</option>
+          </select>
+        </div>
       </div>
       <div class="header-center">
         <input type="text" id="urlInput" class="url-input" placeholder="http://localhost:3000" value="http://localhost:3000">
-        <button id="goBtn" class="btn">Go</button>
-        <button id="refreshBtn" class="btn" title="Refresh page">↻</button>
+        <button id="goBtn" class="btn" title="Navigate to URL (Enter)">Go</button>
+        <button id="refreshBtn" class="btn" title="Refresh page (Ctrl+R)">↻</button>
         <button id="restartServerBtn" class="btn" title="Restart dev server" disabled>⟳</button>
       </div>
       <div class="header-right">
-        <span id="status" class="status">Disconnected</span>
+        <div class="status-bar">
+          <span id="projectStatus" class="status-item hidden" title="Current project"></span>
+          <span id="serverStatus" class="status-item hidden" title="Click to copy URL"></span>
+          <span id="playwrightStatus" class="status-item hidden" title="Playwright automation status"></span>
+          <span id="viewportStatus" class="status-item hidden" title="Current viewport width"></span>
+          <span id="status" class="status">Disconnected</span>
+        </div>
       </div>
     </header>
 
@@ -42,7 +53,7 @@
               <option value="mobile-large">Mobile L (425px)</option>
               <option value="mobile">Mobile (375px)</option>
             </select>
-            <button id="inspectBtn" class="btn btn-small">Inspect</button>
+            <button id="inspectBtn" class="btn btn-small" title="Toggle inspect mode (Ctrl+I)">Inspect</button>
             <button id="freezeHoverBtn" class="btn btn-small" title="Press F to freeze hover states (tooltips, menus)">Freeze (F)</button>
             <button id="consoleToggleBtn" class="btn btn-small">Console</button>
           </div>
@@ -118,6 +129,12 @@
             <div class="section-header">
               <span class="section-title">COMPONENT</span>
               <span id="frameworkBadge" class="framework-badge"></span>
+              <button id="copyComponentBtn" class="copy-btn" title="Copy component info">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
             </div>
             <div class="section-content" id="componentList"></div>
           </div>
@@ -134,6 +151,12 @@
           <div id="pathInfo" class="context-section hidden">
             <div class="section-header">
               <span class="section-title">SELECTOR</span>
+              <button id="copySelectorBtn" class="copy-btn" title="Copy selector">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
             </div>
             <div class="section-content">
               <code id="elementPath" class="element-path"></code>
@@ -273,7 +296,7 @@
         <div class="prompt-area">
           <textarea id="promptInput" class="prompt-textarea" placeholder="What should Claude do with this element?"></textarea>
           <div class="prompt-actions">
-            <button id="sendPromptBtn" class="btn btn-primary">Send to Claude</button>
+            <button id="sendPromptBtn" class="btn btn-primary" title="Send to Claude (Enter)">Send to Claude</button>
           </div>
         </div>
       </div>
@@ -285,6 +308,10 @@
       <div class="panel claude-panel">
         <div class="panel-header">
           <span>Claude Code</span>
+          <span id="thinkingIndicator" class="thinking-indicator hidden">
+            <span class="thinking-dot"></span>
+            <span class="thinking-text">Thinking...</span>
+          </span>
           <button id="startClaudeBtn" class="btn btn-small">Start Claude</button>
         </div>
         <div class="panel-content">

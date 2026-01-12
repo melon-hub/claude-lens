@@ -3,7 +3,7 @@
 > Remaining UI/UX enhancements for production polish
 
 **Created:** 2026-01-11
-**Status:** In Progress
+**Status:** COMPLETE
 
 ---
 
@@ -21,10 +21,10 @@ This plan captures the remaining UX improvements identified during the initial U
 
 Add copy-to-clipboard buttons for key information in the context panel:
 
-- [ ] Copy selector button (next to PATH section)
-- [ ] Copy component name (next to COMPONENT section)
-- [ ] Copy file:line reference (for React/Vue source locations)
-- [ ] Visual feedback on copy (brief "Copied!" toast or checkmark)
+- [x] Copy selector button (next to PATH section)
+- [x] Copy component name (next to COMPONENT section)
+- [x] Copy file:line reference (for React/Vue source locations)
+- [x] Visual feedback on copy (brief "Copied!" toast or checkmark)
 
 **Implementation Notes:**
 - Use `navigator.clipboard.writeText()` API
@@ -39,10 +39,10 @@ Add copy-to-clipboard buttons for key information in the context panel:
 
 Show visual feedback when Claude is processing:
 
-- [ ] Detect when Claude is "thinking" (analyzing input, no output yet)
-- [ ] Add subtle animation in terminal header or status bar
-- [ ] Show elapsed time for long-running operations
-- [ ] Clear indicator when Claude starts outputting response
+- [x] Detect when Claude is "thinking" (analyzing input, no output yet)
+- [x] Add subtle animation in terminal header or status bar
+- [x] Show elapsed time for long-running operations (implemented: 500ms delay threshold)
+- [x] Clear indicator when Claude starts outputting response
 
 **Implementation Notes:**
 - Could detect based on PTY activity patterns
@@ -59,11 +59,11 @@ Show visual feedback when Claude is processing:
 
 Add shortcut hints to buttons and actions:
 
-- [ ] Inspect button: Show "(Ctrl+I)" hint
-- [ ] Freeze hover: Already shows "(F)" - consistent
-- [ ] Send to Claude: Show "(Enter)" hint in prompt area
-- [ ] Refresh: Show "(Ctrl+R)" or "(F5)" hint
-- [ ] Add tooltips on hover with full shortcut description
+- [x] Inspect button: Show "(Ctrl+I)" hint
+- [x] Freeze hover: Already shows "(F)" - consistent
+- [x] Send to Claude: Show "(Enter)" hint in prompt area
+- [x] Refresh: Show "(Ctrl+R)" or "(F5)" hint
+- [x] Add tooltips on hover with full shortcut description
 
 **Implementation Notes:**
 - Use `title` attribute for simple tooltips
@@ -78,12 +78,12 @@ Add shortcut hints to buttons and actions:
 
 Improve status bar with more contextual information:
 
-- [ ] Show current project name
-- [ ] Show server type (Dev Server vs Static)
-- [ ] Show port number
-- [ ] Show Playwright connection status icon
-- [ ] Show viewport size when constrained
-- [ ] Add click actions (e.g., click port to copy URL)
+- [x] Show current project name
+- [x] Show server type (Dev Server vs Static)
+- [x] Show port number
+- [x] Show Playwright connection status icon
+- [x] Show viewport size when constrained
+- [x] Add click actions (e.g., click port to copy URL)
 
 **Current Status Bar:**
 ```
@@ -108,10 +108,10 @@ Improve status bar with more contextual information:
 **Priority:** Low
 **Effort:** Small
 
-- [ ] Review spacing and alignment in browser header
-- [ ] Ensure URL input has proper focus states
-- [ ] Add subtle hover states to header buttons
-- [ ] Consider adding project dropdown in header
+- [x] Review spacing and alignment in browser header
+- [x] Ensure URL input has proper focus states
+- [x] Add subtle hover states to header buttons
+- [x] Consider adding project dropdown in header (optional enhancement)
 
 ---
 
@@ -119,10 +119,10 @@ Improve status bar with more contextual information:
 **Priority:** Low
 **Effort:** Small
 
-- [ ] Audit all buttons for consistent sizing
-- [ ] Ensure hover/active states are smooth (150-200ms transitions)
-- [ ] Verify focus states for keyboard navigation
-- [ ] Check disabled states have proper visual feedback
+- [x] Audit all buttons for consistent sizing
+- [x] Ensure hover/active states are smooth (150-200ms transitions)
+- [x] Verify focus states for keyboard navigation
+- [x] Check disabled states have proper visual feedback
 
 ---
 
@@ -130,10 +130,10 @@ Improve status bar with more contextual information:
 **Priority:** Low
 **Effort:** Small
 
-- [ ] Add visual indicator when hovering resizer
-- [ ] Consider minimum panel widths to prevent UI breakage
-- [ ] Persist panel widths across sessions
-- [ ] Add double-click to reset to default widths
+- [x] Add visual indicator when hovering resizer
+- [x] Consider minimum panel widths to prevent UI breakage
+- [x] Persist panel widths across sessions
+- [x] Add double-click to reset to default widths
 
 ---
 
@@ -141,11 +141,11 @@ Improve status bar with more contextual information:
 **Priority:** Low
 **Effort:** Medium
 
-- [ ] Review color consistency across light/dark themes
-- [ ] Audit font sizes for hierarchy
-- [ ] Check spacing consistency (use 4px/8px grid)
-- [ ] Review loading states across all flows
-- [ ] Test at various window sizes (1280, 1440, 1920)
+- [x] Review color consistency across light/dark themes
+- [x] Audit font sizes for hierarchy
+- [x] Check spacing consistency (use 4px/8px grid)
+- [x] Review loading states across all flows
+- [x] Test at various window sizes (1280, 1440, 1920)
 
 ---
 

@@ -94,8 +94,31 @@ function getRecentProjectsPath(): string {
 async function loadRecentProjects(): Promise<void> {
   try {
     const data = await fsPromises.readFile(getRecentProjectsPath(), 'utf-8');
-    recentProjects = JSON.parse(data);
-  } catch {
+    const parsed = JSON.parse(data);
+
+    // Validate structure - must be an array
+    if (!Array.isArray(parsed)) {
+      console.warn('[RecentProjects] Invalid data format, expected array');
+      recentProjects = [];
+      return;
+    }
+
+    // Filter out invalid entries
+    recentProjects = parsed.filter((p): p is RecentProject => {
+      return typeof p === 'object' && p !== null &&
+             typeof p.path === 'string' &&
+             typeof p.name === 'string' &&
+             typeof p.lastOpened === 'number' &&
+             typeof p.useDevServer === 'boolean';
+    }).slice(0, MAX_RECENT_PROJECTS);
+  } catch (error) {
+    // File not found is expected on first run
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      recentProjects = [];
+      return;
+    }
+    // Log unexpected errors
+    console.error('[RecentProjects] Failed to load:', error);
     recentProjects = [];
   }
 }
@@ -104,7 +127,7 @@ async function saveRecentProjects(): Promise<void> {
   try {
     await fsPromises.writeFile(getRecentProjectsPath(), JSON.stringify(recentProjects, null, 2));
   } catch (error) {
-    console.debug('[RecentProjects] Failed to save:', error);
+    console.error('[RecentProjects] Failed to save:', error);
   }
 }
 
@@ -340,6 +363,10 @@ async function openRecentProject(recent: RecentProject): Promise<void> {
       // Restore BrowserView visibility
       updateBrowserViewBounds();
     } else {
+      // Restore BrowserView visibility even on error (otherwise stuck offscreen)
+      updateBrowserViewBounds();
+      // Notify renderer to hide loading state
+      mainWindow?.webContents.send('project:loadingError', result.error || 'Unknown error');
       // Show error to user
       dialog.showErrorBox('Failed to Start Project', result.error || 'Unknown error');
     }
@@ -965,241 +992,28 @@ ipcMain.handle('browser:setVisible', async (_event, visible: boolean) => {
 
 // Inject unified inspect system - supports both Ctrl+hover and button toggle
 // Ctrl+hover/click always works; Inspect button makes it persistent without Ctrl
+// The inspect system JS is loaded from ./inject/inspect-system.js
+let inspectSystemScript: string | null = null;
+
+async function loadInspectSystemScript(): Promise<string> {
+  if (inspectSystemScript) return inspectSystemScript;
+
+  const scriptPath = path.join(__dirname, 'inject', 'inspect-system.js');
+  try {
+    inspectSystemScript = await fsPromises.readFile(scriptPath, 'utf-8');
+    return inspectSystemScript;
+  } catch (error) {
+    console.error('[InspectSystem] Failed to load inspect-system.js from:', scriptPath, error);
+    // Return minimal fallback script that prevents crash
+    return '(function() { console.warn("Claude Lens inspect system not available"); })()';
+  }
+}
+
 async function injectInspectSystem() {
   if (!browserView) return;
 
-  await browserView.webContents.executeJavaScript(`
-    (function() {
-      // Remove existing tracking if any
-      if (window.__claudeLensCleanup) {
-        window.__claudeLensCleanup();
-      }
-
-      // State
-      window.__claudeLensInspectMode = false; // Button toggle state
-
-      // Create tooltip element
-      let tooltip = document.getElementById('claude-lens-tooltip');
-      if (!tooltip) {
-        tooltip = document.createElement('div');
-        tooltip.id = 'claude-lens-tooltip';
-        tooltip.style.cssText = 'position:fixed;padding:4px 8px;background:#1e1e1e;color:#3794ff;font-family:monospace;font-size:12px;border-radius:4px;pointer-events:none;z-index:999999;display:none;box-shadow:0 2px 8px rgba(0,0,0,0.3);border:1px solid #3c3c3c;white-space:nowrap;';
-        document.body.appendChild(tooltip);
-      }
-
-      // Create highlight element
-      let highlight = document.getElementById('claude-lens-hover-highlight');
-      if (!highlight) {
-        highlight = document.createElement('div');
-        highlight.id = 'claude-lens-hover-highlight';
-        highlight.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;border:2px solid #3794ff;background:rgba(55,148,255,0.1);display:none;';
-        document.body.appendChild(highlight);
-      }
-
-      // Build selector string for display
-      function getSelectorDisplay(element) {
-        let selector = element.tagName.toLowerCase();
-        if (element.id) selector += '#' + element.id;
-        if (element.className && typeof element.className === 'string') {
-          const classes = element.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'));
-          if (classes.length) selector += '.' + classes.slice(0, 3).join('.');
-          if (classes.length > 3) selector += '...';
-        }
-        return selector;
-      }
-
-      function getFullSelector(element) {
-        function getSelector(el) {
-          if (el.id) return '#' + el.id;
-          let selector = el.tagName.toLowerCase();
-          if (el.className && typeof el.className === 'string') {
-            const classes = el.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'));
-            if (classes.length) selector += '.' + classes.join('.');
-          }
-          const parent = el.parentElement;
-          if (parent) {
-            const siblings = Array.from(parent.children).filter(c => c.tagName === el.tagName);
-            if (siblings.length > 1) {
-              const index = siblings.indexOf(el) + 1;
-              selector += ':nth-child(' + index + ')';
-            }
-          }
-          return selector;
-        }
-        const parts = [];
-        let current = element;
-        while (current && current !== document.body) {
-          parts.unshift(getSelector(current));
-          if (current.id) break;
-          current = current.parentElement;
-        }
-        return parts.join(' > ');
-      }
-
-      let currentElement = null;
-      let ctrlPressed = false;
-
-      // Expose for blur handler to reset
-      window.__claudeLensResetCtrl = true;
-      Object.defineProperty(window, '__claudeLensCtrlPressed', {
-        get: () => ctrlPressed,
-        set: (v) => { ctrlPressed = v; },
-        configurable: true
-      });
-
-      // Track Ctrl key state
-      function handleKeyDown(e) {
-        if (e.key === 'Control' && !ctrlPressed) {
-          ctrlPressed = true;
-          document.body.style.cursor = 'crosshair';
-        }
-      }
-
-      function handleKeyUp(e) {
-        if (e.key === 'Control') {
-          ctrlPressed = false;
-          if (!window.__claudeLensInspectMode) {
-            document.body.style.cursor = '';
-            tooltip.style.display = 'none';
-            highlight.style.display = 'none';
-          }
-        }
-      }
-
-      // Should we show inspect UI?
-      function isInspectActive() {
-        return ctrlPressed || window.__claudeLensInspectMode;
-      }
-
-      function handleMouseMove(e) {
-        if (!isInspectActive()) {
-          tooltip.style.display = 'none';
-          highlight.style.display = 'none';
-          return;
-        }
-
-        const el = document.elementFromPoint(e.clientX, e.clientY);
-        if (!el || el === tooltip || el === highlight || el.id?.startsWith('claude-lens')) {
-          return;
-        }
-
-        if (el !== currentElement) {
-          currentElement = el;
-          window.__claudeLensLastElement = el;
-
-          // Update tooltip
-          const selectorText = getSelectorDisplay(el);
-          tooltip.textContent = '<' + selectorText + '>';
-          tooltip.style.display = 'block';
-
-          // Position tooltip near cursor
-          const tooltipRect = tooltip.getBoundingClientRect();
-          let left = e.clientX + 15;
-          let top = e.clientY + 15;
-          if (left + tooltipRect.width > window.innerWidth) {
-            left = e.clientX - tooltipRect.width - 10;
-          }
-          if (top + tooltipRect.height > window.innerHeight) {
-            top = e.clientY - tooltipRect.height - 10;
-          }
-          tooltip.style.left = left + 'px';
-          tooltip.style.top = top + 'px';
-
-          // Update highlight
-          const rect = el.getBoundingClientRect();
-          highlight.style.left = rect.left + 'px';
-          highlight.style.top = rect.top + 'px';
-          highlight.style.width = rect.width + 'px';
-          highlight.style.height = rect.height + 'px';
-          highlight.style.display = 'block';
-        }
-      }
-
-      function handleMouseLeave() {
-        tooltip.style.display = 'none';
-        highlight.style.display = 'none';
-        currentElement = null;
-      }
-
-      function handleClick(e) {
-        // Only capture if Ctrl is held OR inspect mode is on
-        if (!isInspectActive()) return;
-
-        const el = e.target;
-        if (el.id?.startsWith('claude-lens')) return;
-
-        // In inspect mode (button), block the click; with Ctrl, let it through
-        if (window.__claudeLensInspectMode) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-        // With Ctrl only, we still capture but DON'T block - allows dropdowns to open
-
-        // Get element info
-        const attributes = {};
-        for (const attr of el.attributes) {
-          if (attr.name !== 'class' && attr.name !== 'id') {
-            attributes[attr.name] = attr.value;
-          }
-        }
-
-        const computed = window.getComputedStyle(el);
-        const styles = {
-          color: computed.color,
-          backgroundColor: computed.backgroundColor,
-          fontSize: computed.fontSize,
-          fontFamily: computed.fontFamily,
-          display: computed.display,
-          position: computed.position,
-        };
-
-        const rect = el.getBoundingClientRect();
-
-        const elementInfo = {
-          tagName: el.tagName.toLowerCase(),
-          id: el.id || undefined,
-          classes: el.className && typeof el.className === 'string'
-            ? el.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'))
-            : [],
-          selector: getFullSelector(el),
-          text: el.textContent?.slice(0, 100) || '',
-          attributes: attributes,
-          styles: styles,
-          position: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
-          interactionResult: 'Element captured',
-        };
-
-        // Show capture highlight (orange)
-        const captureHighlight = document.createElement('div');
-        captureHighlight.className = 'claude-lens-capture-highlight';
-        captureHighlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #f59e0b;background:rgba(245,158,11,0.15);pointer-events:none;z-index:999999;transition:opacity 0.5s;';
-        document.body.appendChild(captureHighlight);
-        setTimeout(() => { captureHighlight.style.opacity = '0'; }, 1500);
-        setTimeout(() => { captureHighlight.remove(); }, 2000);
-
-        // Send to Electron
-        console.log('CLAUDE_LENS_ELEMENT:' + JSON.stringify(elementInfo));
-      }
-
-      document.addEventListener('keydown', handleKeyDown, true);
-      document.addEventListener('keyup', handleKeyUp, true);
-      document.addEventListener('mousemove', handleMouseMove, true);
-      document.addEventListener('mouseleave', handleMouseLeave);
-      document.addEventListener('click', handleClick, true);
-
-      // Cleanup function
-      window.__claudeLensCleanup = function() {
-        document.removeEventListener('keydown', handleKeyDown, true);
-        document.removeEventListener('keyup', handleKeyUp, true);
-        document.removeEventListener('mousemove', handleMouseMove, true);
-        document.removeEventListener('mouseleave', handleMouseLeave);
-        document.removeEventListener('click', handleClick, true);
-        tooltip?.remove();
-        highlight?.remove();
-        document.body.style.cursor = '';
-      };
-    })()
-  `);
+  const script = await loadInspectSystemScript();
+  await browserView.webContents.executeJavaScript(script);
 }
 
 // IPC Handlers
@@ -1238,121 +1052,6 @@ ipcMain.handle('pty:resize', async (_event, cols: number, rows: number) => {
   if (!ptyManager) return;
   ptyManager.resize(cols, rows);
 });
-
-/**
- * Inject Ctrl+Click element capture listener into the browser.
- * This allows users to quickly capture elements without toggling Inspect Mode.
- * @deprecated Superseded by injectInspectSystem - kept for reference
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function _injectCtrlClickCapture() {
-  if (!browserView) return;
-
-  try {
-    await browserView.webContents.executeJavaScript(`
-      (function() {
-        // Skip if already injected
-        if (window.__claudeLensCtrlClickHandler) return;
-
-        window.__claudeLensCtrlClickHandler = function(e) {
-          // Only capture on Ctrl+Click (or Cmd+Click on Mac)
-          if (!e.ctrlKey && !e.metaKey) return;
-
-          e.preventDefault();
-          e.stopPropagation();
-
-          const el = e.target;
-
-          // Build selector
-          function getSelector(element) {
-            if (element.id) return '#' + element.id;
-            let selector = element.tagName.toLowerCase();
-            if (element.className && typeof element.className === 'string') {
-              const classes = element.className.trim().split(/\\s+/).filter(c => c);
-              if (classes.length) selector += '.' + classes.join('.');
-            }
-            const parent = element.parentElement;
-            if (parent) {
-              const siblings = Array.from(parent.children).filter(c => c.tagName === element.tagName);
-              if (siblings.length > 1) {
-                const index = siblings.indexOf(element) + 1;
-                selector += ':nth-child(' + index + ')';
-              }
-            }
-            return selector;
-          }
-
-          function getFullSelector(element) {
-            const parts = [];
-            let current = element;
-            while (current && current !== document.body) {
-              parts.unshift(getSelector(current));
-              if (current.id) break;
-              current = current.parentElement;
-            }
-            return parts.join(' > ');
-          }
-
-          // Get attributes
-          const attributes = {};
-          for (const attr of el.attributes) {
-            if (attr.name !== 'class' && attr.name !== 'id') {
-              attributes[attr.name] = attr.value;
-            }
-          }
-
-          // Get computed styles
-          const computed = window.getComputedStyle(el);
-          const styles = {
-            color: computed.color,
-            backgroundColor: computed.backgroundColor,
-            fontSize: computed.fontSize,
-            fontFamily: computed.fontFamily,
-            display: computed.display,
-            position: computed.position,
-          };
-
-          // Get position
-          const rect = el.getBoundingClientRect();
-          const position = {
-            x: rect.left,
-            y: rect.top,
-            width: rect.width,
-            height: rect.height,
-          };
-
-          const elementInfo = {
-            tagName: el.tagName.toLowerCase(),
-            id: el.id || undefined,
-            classes: el.className && typeof el.className === 'string'
-              ? el.className.trim().split(/\\s+/).filter(c => c)
-              : [],
-            selector: getFullSelector(el),
-            text: el.textContent?.slice(0, 100) || '',
-            attributes: attributes,
-            styles: styles,
-            position: position,
-          };
-
-          // Highlight briefly
-          document.querySelectorAll('.claude-lens-highlight').forEach(h => h.remove());
-          const highlight = document.createElement('div');
-          highlight.className = 'claude-lens-highlight';
-          highlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #10b981;background:rgba(16,185,129,0.1);pointer-events:none;z-index:999999;';
-          document.body.appendChild(highlight);
-          setTimeout(() => { highlight.style.opacity = '0'; setTimeout(() => highlight.remove(), 300); }, 2000);
-
-          // Send back to Electron
-          console.log('CLAUDE_LENS_CTRL_ELEMENT:' + JSON.stringify(elementInfo));
-        };
-
-        document.addEventListener('click', window.__claudeLensCtrlClickHandler, true);
-      })()
-    `);
-  } catch (error) {
-    console.debug('[BrowserView] Inject script error:', error);
-  }
-}
 
 // Browser (embedded BrowserView) handlers
 ipcMain.handle('browser:navigate', async (_event, url: string) => {
@@ -1938,6 +1637,33 @@ ipcMain.handle('project:stopServer', async () => {
 
 ipcMain.handle('project:restartServer', async () => {
   return restartServer();
+});
+
+ipcMain.handle('project:getRecent', () => {
+  return recentProjects.map(p => ({
+    name: p.name,
+    path: p.path,
+    useDevServer: p.useDevServer,
+    lastOpened: p.lastOpened
+  }));
+});
+
+ipcMain.handle('project:openRecent', async (_event, projectPath: string) => {
+  const recent = recentProjects.find(p => p.path === projectPath);
+  if (!recent) return { success: false, error: 'Project not found in recent list' };
+
+  try {
+    await openRecentProject(recent);
+    // Verify the project actually opened
+    if (!currentProject) {
+      return { success: false, error: 'Project failed to load' };
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('[project:openRecent] Failed to open project:', error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMsg };
+  }
 });
 
 // Send element to Claude - the key seamless integration!

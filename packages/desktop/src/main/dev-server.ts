@@ -168,6 +168,10 @@ export class DevServerManager {
    * Must be careful not to match timestamps or other numbers
    */
   private detectPortFromOutput(output: string): number | null {
+    // Strip ANSI escape codes before matching (Vite outputs colored text)
+    // eslint-disable-next-line no-control-regex
+    const cleanOutput = output.replace(/\x1b\[[0-9;]*m/g, '');
+
     // Specific patterns for dev server URL announcements
     // These must be URL-like to avoid matching timestamps/error codes
     const patterns = [
@@ -180,7 +184,7 @@ export class DevServerManager {
     ];
 
     for (const pattern of patterns) {
-      const match = output.match(pattern);
+      const match = cleanOutput.match(pattern);
       if (match && match[1]) {
         const port = parseInt(match[1], 10);
         // Sanity check: port should be in common dev server range

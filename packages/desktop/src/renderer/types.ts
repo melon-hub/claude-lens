@@ -184,9 +184,12 @@ export interface ClaudeLensAPI {
     getInfo: () => Promise<ProjectInfo | null>;
     stopServer: () => Promise<{ success: boolean; error?: string }>;
     restartServer: () => Promise<{ success: boolean; error?: string }>;
+    getRecent: () => Promise<Array<{ name: string; path: string; useDevServer: boolean; lastOpened: number }>>;
+    openRecent: (projectPath: string) => Promise<{ success: boolean; error?: string }>;
     onDetected: (callback: (info: ProjectInfo) => void) => void;
     onClosed: (callback: () => void) => void;
     onLoading: (callback: (info: { name: string; useDevServer: boolean }) => void) => void;
+    onLoadingError: (callback: (error: string) => void) => void;
   };
   server: {
     onOutput: (callback: (data: string) => void) => void;

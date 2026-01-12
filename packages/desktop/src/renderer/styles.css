@@ -112,6 +112,35 @@ body {
   font-weight: 400;
 }
 
+.project-dropdown-container {
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.project-dropdown {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  min-width: 120px;
+  max-width: 200px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.project-dropdown:hover {
+  border-color: var(--accent);
+}
+
+.project-dropdown:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+}
+
 .url-input {
   width: 400px;
   padding: 6px 12px;
@@ -120,11 +149,17 @@ body {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   font-size: 13px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .url-input:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+}
+
+.url-input::placeholder {
+  color: var(--text-muted);
 }
 
 /* Buttons */
@@ -136,11 +171,20 @@ body {
   color: var(--text-primary);
   cursor: pointer;
   font-size: 13px;
-  transition: background 0.2s;
+  transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
 }
 
 .btn:hover {
   background: var(--bg-hover);
+}
+
+.btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.3);
+}
+
+.btn:active {
+  transform: scale(0.98);
 }
 
 .btn-primary {
@@ -153,8 +197,13 @@ body {
 }
 
 .btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
+}
+
+.btn:disabled:hover {
+  background: var(--bg-tertiary);
 }
 
 .btn-secondary {
@@ -257,12 +306,37 @@ body {
   width: 4px;
   background: var(--border);
   cursor: col-resize;
-  transition: background 0.2s;
+  transition: background 0.15s ease, width 0.15s ease;
   flex-shrink: 0;
+  position: relative;
 }
 
 .resizer:hover {
   background: var(--accent);
+  width: 6px;
+}
+
+.resizer:active {
+  background: var(--accent);
+  width: 6px;
+}
+
+/* Visual drag indicator */
+.resizer::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 24px;
+  background: transparent;
+  border-radius: 1px;
+  transition: background 0.15s ease;
+}
+
+.resizer:hover::before {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* Browser Panel */
@@ -1416,4 +1490,132 @@ body.drag-over::after {
 .context-warning.cross-origin {
   background: rgba(239, 68, 68, 0.2);
   color: #ef4444;
+}
+
+/* Copy Button Styles */
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.copy-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.copy-btn:active {
+  transform: scale(0.95);
+}
+
+.copy-btn.copied {
+  color: var(--success);
+}
+
+.copy-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Section header with copy button */
+.section-header-with-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.section-header .copy-btn {
+  margin-left: auto;
+}
+
+/* Claude Thinking Indicator */
+.thinking-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 3px 10px;
+  background: rgba(139, 92, 246, 0.15);
+  border-radius: 12px;
+  font-size: 11px;
+  color: #a78bfa;
+}
+
+.thinking-dot {
+  width: 8px;
+  height: 8px;
+  background: #a78bfa;
+  border-radius: 50%;
+  animation: thinking-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes thinking-pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.thinking-text {
+  font-weight: 500;
+}
+
+/* Status Bar (Enhanced) */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.status-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.status-item.success {
+  color: var(--success);
+}
+
+.status-item.warning {
+  color: var(--warning);
+}
+
+.status-item .status-icon {
+  font-size: 10px;
+}
+
+/* Header right - allow flexible width for status bar */
+.header-right {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
 }

@@ -108,6 +108,8 @@ contextBridge.exposeInMainWorld('claudeLens', {
     getInfo: () => ipcRenderer.invoke('project:getInfo'),
     stopServer: () => ipcRenderer.invoke('project:stopServer'),
     restartServer: () => ipcRenderer.invoke('project:restartServer'),
+    getRecent: () => ipcRenderer.invoke('project:getRecent') as Promise<Array<{ name: string; path: string; useDevServer: boolean; lastOpened: number }>>,
+    openRecent: (projectPath: string) => ipcRenderer.invoke('project:openRecent', projectPath) as Promise<{ success: boolean; error?: string }>,
     onDetected: (callback: (info: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, info: unknown) => callback(info);
       ipcRenderer.on('project:detected', handler);
@@ -122,6 +124,11 @@ contextBridge.exposeInMainWorld('claudeLens', {
       const handler = (_event: Electron.IpcRendererEvent, info: { name: string; useDevServer: boolean }) => callback(info);
       ipcRenderer.on('project:loading', handler);
       return () => ipcRenderer.removeListener('project:loading', handler);
+    },
+    onLoadingError: (callback: (error: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, error: string) => callback(error);
+      ipcRenderer.on('project:loadingError', handler);
+      return () => ipcRenderer.removeListener('project:loadingError', handler);
     },
   },
 

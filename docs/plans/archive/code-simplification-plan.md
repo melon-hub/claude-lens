@@ -1,13 +1,15 @@
 # Code Simplification Plan
 
 **Created:** 2026-01-10
-**Updated:** 2026-01-11
-**Status:** MOSTLY COMPLETE
+**Updated:** 2026-01-12
+**Completed:** 2026-01-12
+**Status:** COMPLETE (2 items deferred)
 **Priority:** Low-Medium (quality of life, not blocking)
 
 ## Overview
 
-Code simplification opportunities identified and validated. Most items now complete.
+Code simplification opportunities identified and validated. All prioritized items complete.
+Two low-priority refactoring items deferred for when those files are modified for other reasons.
 
 ### Progress Summary
 
@@ -15,7 +17,7 @@ Code simplification opportunities identified and validated. Most items now compl
 |-------|--------|
 | Phase 1: Quick Wins | COMPLETE |
 | Phase 2: Inline JS Extraction | COMPLETE |
-| Phase 3: Structure Improvements | PARTIAL (2 remaining) |
+| Phase 3: Structure Improvements | COMPLETE (2 deferred) |
 
 ---
 
@@ -62,21 +64,23 @@ Code simplification opportunities identified and validated. Most items now compl
 
 ---
 
-## REMAINING Items
+## DEFERRED Items
+
+> These are low-priority refactoring opportunities. Address when modifying these files for other reasons.
 
 ### 5. Split `updateContextPanel()` Function
 - **File:** `packages/desktop/src/renderer/main.ts`
 - **Issue:** Large function handling 10+ UI sections
 - **Action:** Extract focused functions for each section
 - **Effort:** 1 hour
-- **Priority:** LOW - function works fine, just long
+- **Why Deferred:** Function works correctly, splitting is purely cosmetic
 
 ### 6. Split `startProject()` Function
 - **File:** `packages/desktop/src/main/index.ts`
 - **Issue:** Large function with multiple responsibilities
 - **Action:** Extract sub-functions for dependencies, dev server, static server
 - **Effort:** 1.5 hours
-- **Priority:** LOW - function works fine, just long
+- **Why Deferred:** Function works correctly, splitting is purely cosmetic
 
 ---
 

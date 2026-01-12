@@ -24,88 +24,7 @@ import {
   CHAR_SUBSTITUTIONS,
   MCP_INDICATORS,
 } from './constants/mcp-tool-icons';
-
-/**
- * Simple debounce utility - delays function execution until after wait ms of inactivity
- */
-function debounce<T extends (...args: unknown[]) => unknown>(fn: T, wait: number): (...args: Parameters<T>) => void {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  return (...args: Parameters<T>) => {
-    if (timeoutId) clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => fn(...args), wait);
-  };
-}
-
-/**
- * Wait for fonts to load before opening terminal
- * Based on Tabby terminal's approach: https://github.com/Eugeny/tabby
- *
- * xterm.js measures fonts during terminal.open() and caches the measurements.
- * If the font isn't loaded yet, it measures fallback fonts and icons won't render.
- */
-async function waitForFonts(fontFamily: string, timeoutMs = 3000): Promise<void> {
-  const startTime = Date.now();
-
-  // Extract all font names from the stack
-  const fontNames = fontFamily.split(',').map(f => f.trim().replace(/['"]/g, '')).filter(f => f && f !== 'monospace');
-
-  // Request all fonts to load (silently)
-  for (const font of fontNames) {
-    try {
-      await document.fonts.load(`13px "${font}"`);
-    } catch {
-      // Font load failed, will use fallback
-    }
-  }
-
-  // Wait for all fonts to be ready
-  await document.fonts.ready;
-
-  // Check each font, only warn if missing
-  const missingFonts: string[] = [];
-  for (const font of fontNames) {
-    let fontAvailable = document.fonts.check(`13px "${font}"`);
-
-    // Poll if not yet available
-    while (!fontAvailable && (Date.now() - startTime) < timeoutMs) {
-      await new Promise(r => setTimeout(r, 100));
-      fontAvailable = document.fonts.check(`13px "${font}"`);
-    }
-
-    if (!fontAvailable) {
-      missingFonts.push(font);
-    }
-  }
-
-  if (missingFonts.length > 0) {
-    console.warn(`Fonts not available: ${missingFonts.join(', ')}`);
-  }
-
-  // Additional delay for font rendering to settle
-  await new Promise(r => setTimeout(r, 500));
-}
-
-/**
- * Font diagnostics - only logs warnings if something is wrong
- */
-function runFontDiagnostics(): void {
-  const criticalFonts = [
-    'JetBrains Mono NF Bundled',
-    'Symbols Nerd Font',
-    'Noto Sans Symbols 2',
-  ];
-
-  // Check font availability - only warn if missing
-  const missingFonts = criticalFonts.filter(font => !document.fonts.check(`13px "${font}"`));
-
-  if (missingFonts.length > 0) {
-    console.warn('Missing fonts:', missingFonts.join(', '));
-  }
-}
-
-// Type-safe getElementById helper
-const getEl = <T extends HTMLElement>(id: string): T =>
-  document.getElementById(id) as T;
+import { debounce, waitForFonts, runFontDiagnostics, getEl, copyToClipboard } from './utils';
 
 // Elements - Header
 const urlInput = getEl<HTMLInputElement>('urlInput');
@@ -2168,32 +2087,11 @@ contextModeSelect.addEventListener('change', () => {
   contextMode = contextModeSelect.value as ContextMode;
 });
 
-// Copy to clipboard helper with visual feedback
-async function copyToClipboard(text: string, button: HTMLButtonElement): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-    button.classList.add('copied');
-    // Swap icon to checkmark temporarily
-    const originalSvg = button.innerHTML;
-    button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="20 6 9 17 4 12"></polyline>
-    </svg>`;
-    setStatus('Copied!', true);
-    setTimeout(() => {
-      button.classList.remove('copied');
-      button.innerHTML = originalSvg;
-    }, 1500);
-  } catch (err) {
-    console.error('Failed to copy:', err);
-    setStatus('Copy failed');
-  }
-}
-
 // Copy selector button
 copySelectorBtn.addEventListener('click', () => {
   const selector = elementPath.textContent;
   if (selector) {
-    copyToClipboard(selector, copySelectorBtn);
+    copyToClipboard(selector, copySelectorBtn, setStatus);
   }
 });
 
@@ -2207,7 +2105,7 @@ copyComponentBtn.addEventListener('click', () => {
     if (comp?.source) {
       copyText += `\n${comp.source.fileName}:${comp.source.lineNumber}`;
     }
-    copyToClipboard(copyText, copyComponentBtn);
+    copyToClipboard(copyText, copyComponentBtn, setStatus);
   }
 });
 
@@ -2215,7 +2113,7 @@ copyComponentBtn.addEventListener('click', () => {
 copySourceBtn.addEventListener('click', () => {
   const source = sourceLocation.textContent;
   if (source) {
-    copyToClipboard(source, copySourceBtn);
+    copyToClipboard(source, copySourceBtn, setStatus);
   }
 });
 

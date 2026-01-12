@@ -259,7 +259,7 @@ describe('Context Panel', () => {
 
 ## Implementation Steps
 
-### Phase 1: Setup & Utils (Day 1)
+### Phase 1: Setup & Utils
 - [ ] Create directory structure
 - [ ] Extract `utils/debounce.ts`
 - [ ] Extract `utils/fonts.ts`
@@ -267,19 +267,61 @@ describe('Context Panel', () => {
 - [ ] Add vitest configuration for desktop package
 - [ ] Write tests for utils
 
-### Phase 2: State Management (Day 1-2)
+**Phase 1 Checkpoint:**
+```bash
+# Validation commands - ALL must pass before proceeding
+pnpm run build              # TypeScript compiles
+pnpm run lint               # No lint errors
+pnpm run test --filter=desktop  # Utils tests pass
+```
+- [ ] Verify: `main.ts` imports from new utils modules
+- [ ] Verify: No duplicate function definitions
+- [ ] Verify: App launches (`pnpm run dev` in desktop)
+
+---
+
+### Phase 2: State Management
 - [ ] Create `state/index.ts` with typed state
 - [ ] Migrate global variables to state module
 - [ ] Add subscription mechanism for reactivity
 - [ ] Write tests for state management
 
-### Phase 3: Terminal Module (Day 2)
+**Phase 2 Checkpoint:**
+```bash
+pnpm run build
+pnpm run lint
+pnpm run test --filter=desktop
+```
+- [ ] Verify: All state variables removed from main.ts
+- [ ] Verify: State imports work in main.ts
+- [ ] Verify: State tests cover get/set/subscribe
+- [ ] Verify: App launches and state initializes correctly
+
+---
+
+### Phase 3: Terminal Module
 - [ ] Extract `terminal/setup.ts`
 - [ ] Extract `terminal/handlers.ts`
 - [ ] Extract `terminal/context-menu.ts`
 - [ ] Update main.ts to use terminal module
 
-### Phase 4: Panels (Day 2-3)
+**Phase 3 Checkpoint:**
+```bash
+pnpm run build
+pnpm run lint
+pnpm run test --filter=desktop
+```
+- [ ] Verify: Terminal renders correctly on app launch
+- [ ] Verify: Claude Code starts when clicking "Start Claude"
+- [ ] Verify: Terminal input/output works
+- [ ] Verify: Ctrl+Shift+C copies selection
+- [ ] Verify: Ctrl+Shift+V pastes (text and images)
+- [ ] Verify: Right-click context menu appears and works
+- [ ] Verify: Terminal resizes with window
+
+---
+
+### Phase 4: Panels
 - [ ] Extract `panels/browser.ts`
 - [ ] Extract `panels/context.ts`
 - [ ] Extract `panels/console.ts`
@@ -288,28 +330,108 @@ describe('Context Panel', () => {
 - [ ] Extract `panels/phase4.ts`
 - [ ] Write tests for panel logic
 
-### Phase 5: Components (Day 3)
+**Phase 4 Checkpoint:**
+```bash
+pnpm run build
+pnpm run lint
+pnpm run test --filter=desktop
+```
+- [ ] Verify: Browser panel shows page after navigation
+- [ ] Verify: Ctrl+hover highlights elements
+- [ ] Verify: Click on element populates context panel
+- [ ] Verify: Element chips appear and can be removed
+- [ ] Verify: Console drawer opens/closes
+- [ ] Verify: Console messages appear in drawer
+- [ ] Verify: Inspect mode captures sequence
+- [ ] Verify: Form state displays for input elements
+- [ ] Verify: Phase 4 panels (overlay, stacking, scroll, iframe, shadow DOM) display
+
+---
+
+### Phase 5: Components
 - [ ] Extract `components/project-modal.ts`
 - [ ] Extract `components/panel-resizers.ts`
 - [ ] Extract `components/status-bar.ts`
 
-### Phase 6: Handlers (Day 3-4)
+**Phase 5 Checkpoint:**
+```bash
+pnpm run build
+pnpm run lint
+pnpm run test --filter=desktop
+```
+- [ ] Verify: File > Open Project shows modal
+- [ ] Verify: Modal buttons work (Start with dev, Use built-in, Cancel)
+- [ ] Verify: Panel resizers work (drag to resize)
+- [ ] Verify: Double-click resizer resets widths
+- [ ] Verify: Status bar shows project name, server, Playwright status
+- [ ] Verify: Panel widths persist after restart (localStorage)
+
+---
+
+### Phase 6: Handlers
 - [ ] Extract `handlers/navigation.ts`
 - [ ] Extract `handlers/claude.ts`
 - [ ] Extract `handlers/inspect.ts`
 - [ ] Wire handlers in main.ts
 
-### Phase 7: Integration & Cleanup (Day 4)
+**Phase 6 Checkpoint:**
+```bash
+pnpm run build
+pnpm run lint
+pnpm run test --filter=desktop
+```
+- [ ] Verify: URL navigation works (enter URL, click Go)
+- [ ] Verify: Refresh button reloads page
+- [ ] Verify: Viewport presets change browser width
+- [ ] Verify: Send to Claude sends element context
+- [ ] Verify: Thinking indicator shows during response
+- [ ] Verify: Inspect button toggles inspect mode
+- [ ] Verify: Freeze hover (F key) freezes highlight
+- [ ] Verify: Keyboard shortcuts work (Ctrl+R refresh, F freeze)
+
+---
+
+### Phase 7: Integration & Cleanup
 - [ ] Update main.ts as thin orchestrator
+- [ ] Verify main.ts is under 150 lines
 - [ ] Run all tests
 - [ ] Manual testing of full application
 - [ ] Fix any regressions
 - [ ] Update imports throughout
 
-### Phase 8: Documentation (Day 4)
+**Phase 7 Checkpoint:**
+```bash
+pnpm run build
+pnpm run lint
+pnpm run test --filter=desktop
+wc -l packages/desktop/src/renderer/main.ts  # Should be < 150
+```
+- [ ] Verify: main.ts only contains init() and module wiring
+- [ ] Verify: No module exceeds 300 lines
+- [ ] Verify: Full manual test checklist passes (see below)
+- [ ] Verify: No console errors on app launch
+- [ ] Verify: No TypeScript errors
+
+---
+
+### Phase 8: Final Testing & Documentation
+- [ ] Run complete test suite
+- [ ] Verify test coverage meets target
 - [ ] Update ARCHITECTURE.md with new structure
 - [ ] Add JSDoc comments to exported functions
-- [ ] Document state management approach
+- [ ] Final commit and push
+
+**Phase 8 Checkpoint:**
+```bash
+pnpm run build
+pnpm run lint
+pnpm run test --filter=desktop --coverage
+```
+- [ ] Verify: All tests pass
+- [ ] Verify: Coverage report shows >60% on critical modules
+- [ ] Verify: ARCHITECTURE.md documents new structure
+- [ ] Verify: Exported functions have JSDoc comments
+- [ ] Verify: Branch pushed to remote
 
 ---
 

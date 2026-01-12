@@ -11,7 +11,6 @@ import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { SearchAddon } from '@xterm/addon-search';
-import { CircularBuffer } from '@claude-lens/core';
 import 'xterm/css/xterm.css';
 import {
   formatElements,
@@ -25,6 +24,12 @@ import {
   MCP_INDICATORS,
 } from './constants/mcp-tool-icons';
 import { debounce, waitForFonts, runFontDiagnostics, getEl, copyToClipboard } from './utils';
+import {
+  consoleBuffer,
+  addConsoleMessage as stateAddConsoleMessage,
+  DRAWER_HEIGHT,
+  type ConsoleMessage,
+} from './state';
 
 // Elements - Header
 const urlInput = getEl<HTMLInputElement>('urlInput');
@@ -171,36 +176,21 @@ terminal.loadAddon(new WebLinksAddon());
 terminal.loadAddon(unicode11Addon);
 terminal.unicode.activeVersion = '11';
 
-// State
+// State is now managed by the state module
+// Local references for backward compatibility during refactor
+// These will be removed in Phase 7 integration
+let selectedElements: ElementInfo[] = [];
+let inspectSequence: CapturedInteraction[] = [];
+let capturedToasts: ToastCapture[] = [];
 let claudeRunning = false;
 let browserLoaded = false;
 let inspectMode = false;
-let selectedElements: ElementInfo[] = [];
 let consoleDrawerOpen = false;
-
-// Context mode: 'lean' (optimized for Claude efficiency) or 'detailed' (full info)
 let contextMode: ContextMode = 'lean';
-
-// Inspect sequence state (Phase 2: multi-click capture)
-let inspectSequence: CapturedInteraction[] = [];
-
-// Freeze hover state (Phase 3)
 let hoverFrozen = false;
-
-// Captured toasts state (Phase 4)
-let capturedToasts: ToastCapture[] = [];
-
-// Claude thinking state - shown when waiting for response
 let isThinking = false;
 let thinkingTimeout: ReturnType<typeof setTimeout> | null = null;
-
-// Console drawer height - 200px CSS + extra buffer for BrowserView bounds
-const DRAWER_HEIGHT = 235;
-
-// Viewport width constraint (0 = full width)
 let viewportWidth = 0;
-
-// Status bar state
 let currentProjectName = '';
 let currentServerPort = 0;
 let currentServerType: 'dev' | 'static' | null = null;
@@ -241,14 +231,7 @@ function setBrowserLoaded(url?: string) {
   updateBrowserBounds();
 }
 
-// Console message buffer (last 50 messages)
-interface ConsoleMessage {
-  level: string;
-  message: string;
-  timestamp: number;
-}
-const MAX_CONSOLE_MESSAGES = 50;
-const consoleBuffer = new CircularBuffer<ConsoleMessage>(MAX_CONSOLE_MESSAGES);
+// Console buffer is now imported from state module
 
 // Show project modal when a project is detected
 function showProjectModal(project: ProjectInfo) {
@@ -1230,7 +1213,7 @@ function removeElement(selector: string) {
 
 // Console message handling - CircularBuffer handles overflow automatically (O(1))
 function addConsoleMessage(msg: ConsoleMessage) {
-  consoleBuffer.push(msg);
+  stateAddConsoleMessage(msg);
   updateConsoleUI();
 }
 

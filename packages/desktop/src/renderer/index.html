@@ -53,7 +53,7 @@
               <option value="mobile-large">Mobile L (425px)</option>
               <option value="mobile">Mobile (375px)</option>
             </select>
-            <button id="inspectBtn" class="btn btn-small" title="Toggle inspect mode (Ctrl+I)">Inspect</button>
+            <button id="inspectBtn" class="btn btn-small" title="Toggle inspect mode (or Ctrl+hover)">Inspect</button>
             <button id="freezeHoverBtn" class="btn btn-small" title="Press F to freeze hover states (tooltips, menus)">Freeze (F)</button>
             <button id="consoleToggleBtn" class="btn btn-small">Console</button>
           </div>
@@ -156,8 +156,10 @@
                 </button>
               </div>
               <div id="sourceUnavailable" class="source-unavailable hidden">
-                <span class="source-warning">Not available - React dev mode required</span>
-                <button id="fixSourceBtn" class="btn btn-small btn-fix" title="Ask Claude to enable source maps">Fix</button>
+                <span class="source-warning">Component not found in source files</span>
+              </div>
+              <div id="sourceNoFramework" class="source-no-framework hidden">
+                <span class="source-hint">Select a React/Vue component to see source location</span>
               </div>
             </div>
           </div>

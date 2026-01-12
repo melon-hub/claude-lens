@@ -997,6 +997,17 @@ body {
   border-color: #ffc107;
 }
 
+.source-no-framework {
+  display: flex;
+  align-items: center;
+}
+
+.source-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .component-row {
   display: flex;
   flex-direction: column;

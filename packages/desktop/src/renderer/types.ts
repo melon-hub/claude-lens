@@ -198,6 +198,11 @@ export interface ClaudeLensAPI {
     onProgress: (callback: (progress: { elapsed: number; status: string; phase: string }) => void) => void;
   };
   sendToClaude: (prompt: string, elementContext: string) => Promise<{ success: boolean }>;
+  clipboard: {
+    hasImage: () => Promise<boolean>;
+    saveImage: () => Promise<{ success: boolean; path?: string; error?: string }>;
+    readText: () => Promise<string>;
+  };
 }
 
 declare global {

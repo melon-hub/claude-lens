@@ -164,6 +164,7 @@ contextBridge.exposeInMainWorld('claudeLens', {
   clipboard: {
     hasImage: () => ipcRenderer.invoke('clipboard:hasImage') as Promise<boolean>,
     saveImage: () => ipcRenderer.invoke('clipboard:saveImage') as Promise<{ success: boolean; path?: string; error?: string }>,
+    readText: () => ipcRenderer.invoke('clipboard:readText') as Promise<string>,
   },
 });
 
@@ -228,6 +229,7 @@ export interface ClaudeLensAPI {
   clipboard: {
     hasImage: () => Promise<boolean>;
     saveImage: () => Promise<{ success: boolean; path?: string; error?: string }>;
+    readText: () => Promise<string>;
   };
 }
 

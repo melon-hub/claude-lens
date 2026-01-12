@@ -12,6 +12,10 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as fsPromises from 'fs/promises';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 import * as pty from 'node-pty';
 import { PtyManager } from './pty-manager';
 import { startMCPServer, stopMCPServer, setBrowserView, setConsoleBuffer } from './mcp-server';
@@ -77,6 +81,194 @@ let playwrightAdapter: PlaywrightAdapter | null = null;
 let currentProject: ProjectInfo | null = null;
 let devServerManager: DevServerManager | null = null;
 let staticServer: StaticServer | null = null;
+
+// Component source cache - maps component name to file:line
+// Cleared when project changes, invalidated on file save
+const componentSourceCache = new Map<string, { fileName: string; lineNumber: number } | null>();
+
+/**
+ * Search for a component definition in the project source files.
+ * Uses grep to find function/const/class declarations.
+ * Results are cached for instant subsequent lookups.
+ */
+async function findComponentSource(componentName: string): Promise<{ fileName: string; lineNumber: number } | null> {
+  // Check cache first
+  if (componentSourceCache.has(componentName)) {
+    return componentSourceCache.get(componentName) || null;
+  }
+
+  if (!currentProject?.path) {
+    return null;
+  }
+
+  // Validate component name - only allow alphanumeric and underscore
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(componentName)) {
+    console.warn(`[ComponentSearch] Invalid component name: ${componentName}`);
+    return null;
+  }
+
+  try {
+    const projectPath = currentProject.path;
+
+    // Search patterns for component definitions
+    const patterns = [
+      `function ${componentName}\\b`,
+      `const ${componentName}\\s*=`,
+      `let ${componentName}\\s*=`,
+      `class ${componentName}\\b`,
+    ];
+
+    const grepPattern = patterns.join('\\|');
+
+    // Search in common source directories
+    const searchPaths = ['src', 'app', 'components', 'lib', '.'];
+
+    for (const searchPath of searchPaths) {
+      const fullSearchPath = path.join(projectPath, searchPath);
+      if (!fs.existsSync(fullSearchPath)) continue;
+
+      try {
+        // Use execFile with array args (safe from injection)
+        const { stdout } = await execFileAsync('grep', [
+          '-rn',
+          '--include=*.tsx',
+          '--include=*.jsx',
+          '--include=*.ts',
+          '--include=*.js',
+          grepPattern,
+          fullSearchPath
+        ], { timeout: 5000, maxBuffer: 1024 * 1024 });
+
+        const firstLine = stdout.split('\n')[0]?.trim();
+        if (firstLine) {
+          // Parse grep output: /path/to/file.tsx:42:const ComponentName = ...
+          const match = firstLine.match(/^(.+?):(\d+):/);
+          if (match) {
+            const [, filePath, lineNum] = match;
+            const relativePath = path.relative(projectPath, filePath);
+            const source = { fileName: relativePath, lineNumber: parseInt(lineNum, 10) };
+            componentSourceCache.set(componentName, source);
+            console.log(`[ComponentSearch] Found ${componentName} at ${relativePath}:${lineNum}`);
+            return source;
+          }
+        }
+      } catch {
+        // grep returns exit code 1 if no matches, continue to next path
+        continue;
+      }
+    }
+
+    // Cache negative result to avoid repeated searches
+    componentSourceCache.set(componentName, null);
+    return null;
+  } catch (error) {
+    console.error(`[ComponentSearch] Error searching for ${componentName}:`, error);
+    return null;
+  }
+}
+
+
+/**
+ * Enhance element info with React/Vue framework detection and source lookup.
+ * Called when element is selected via console message (inspect mode).
+ */
+async function enhanceElementWithFramework(selector: string): Promise<{ framework?: { framework: string; components: Array<{ name: string; source?: { fileName: string; lineNumber: number } }> } } | null> {
+  if (!browserView || !selector) return null;
+
+  try {
+    // Run React/Vue detection in the browser
+    const result = await browserView.webContents.executeJavaScript(`
+      (function() {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) return null;
+
+        // Detect React component info - walks up DOM tree if no fiber found on element
+        function getReactInfo(element) {
+          let domNode = element;
+          let fiber = null;
+          let domDepth = 0;
+          const maxDomDepth = 10;
+
+          while (domNode && domDepth < maxDomDepth) {
+            const fiberKey = Object.keys(domNode).find(key =>
+              key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')
+            );
+            if (fiberKey && domNode[fiberKey]) {
+              fiber = domNode[fiberKey];
+              break;
+            }
+            domNode = domNode.parentElement;
+            domDepth++;
+          }
+
+          if (!fiber) return null;
+
+          let current = fiber;
+          const components = [];
+          let depth = 0;
+          const maxDepth = 20;
+
+          while (current && depth < maxDepth) {
+            depth++;
+            const type = current.type;
+
+            if (type && typeof type === 'function') {
+              const name = type.displayName || type.name || 'Anonymous';
+              if (!name.startsWith('_') && name !== 'Anonymous') {
+                const componentInfo = { name };
+                if (current._debugSource) {
+                  componentInfo.source = {
+                    fileName: current._debugSource.fileName,
+                    lineNumber: current._debugSource.lineNumber,
+                  };
+                }
+                components.push(componentInfo);
+                if (components.length >= 3) break;
+              }
+            }
+            current = current.return;
+          }
+
+          return components.length > 0 ? { components, framework: 'React' } : null;
+        }
+
+        // Detect Vue component info
+        function getVueInfo(element) {
+          const vueKey = Object.keys(element).find(key => key.startsWith('__vue'));
+          if (!vueKey) return null;
+          const vue = element[vueKey];
+          if (!vue) return null;
+          const name = vue.$options?.name || vue.$.type?.name || 'VueComponent';
+          return { framework: 'Vue', components: [{ name }] };
+        }
+
+        const reactInfo = getReactInfo(el);
+        const vueInfo = !reactInfo ? getVueInfo(el) : null;
+        return { framework: reactInfo || vueInfo || null };
+      })()
+    `);
+
+    // Enhance components with source info from grep search (for React 19)
+    if (result?.framework?.components) {
+      console.log('[Enhance] Found components:', result.framework.components.map((c: { name: string }) => c.name));
+      for (const component of result.framework.components) {
+        if (!component.source && component.name) {
+          console.log('[Enhance] Searching source for:', component.name);
+          const source = await findComponentSource(component.name);
+          if (source) {
+            component.source = source;
+            console.log('[Enhance] Found source:', source);
+          }
+        }
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.debug('[Enhance] Error:', error);
+    return null;
+  }
+}
 
 // Recent projects management
 interface RecentProject {
@@ -1160,15 +1352,26 @@ ipcMain.handle('browser:inspect', async (_event, x: number, y: number) => {
           return parts.join(' > ');
         }
 
-        // Detect React component info
+        // Detect React component info - walks up DOM tree if no fiber found on element
         function getReactInfo(element) {
-          // Find React fiber key on element
-          const fiberKey = Object.keys(element).find(key =>
-            key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')
-          );
-          if (!fiberKey) return null;
+          // Walk up DOM tree to find element with React fiber (max 10 levels)
+          let domNode = element;
+          let fiber = null;
+          let domDepth = 0;
+          const maxDomDepth = 10;
 
-          const fiber = element[fiberKey];
+          while (domNode && domDepth < maxDomDepth) {
+            const fiberKey = Object.keys(domNode).find(key =>
+              key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')
+            );
+            if (fiberKey && domNode[fiberKey]) {
+              fiber = domNode[fiberKey];
+              break;
+            }
+            domNode = domNode.parentElement;
+            domDepth++;
+          }
+
           if (!fiber) return null;
 
           // Walk up fiber tree to find component (function/class, not host elements)
@@ -1258,6 +1461,23 @@ ipcMain.handle('browser:inspect', async (_event, x: number, y: number) => {
         };
       })()
     `);
+
+    // Enhance component info with source locations from grep search
+    // This handles React 19 which removed _debugSource
+    console.log('[Inspect] Result framework:', result?.framework ? JSON.stringify(result.framework) : 'none');
+    if (result?.framework?.components) {
+      console.log('[Inspect] Found components:', result.framework.components.map((c: { name: string }) => c.name));
+      for (const component of result.framework.components) {
+        if (!component.source && component.name) {
+          console.log('[Inspect] Searching source for:', component.name);
+          const source = await findComponentSource(component.name);
+          if (source) {
+            component.source = source;
+            console.log('[Inspect] Found source:', source);
+          }
+        }
+      }
+    }
 
     return result;
   } catch (error) {
@@ -1558,23 +1778,37 @@ function setupBrowserViewMessaging() {
 
     // Check if it's our element selection message (from Inspect Mode)
     if (message.startsWith('CLAUDE_LENS_ELEMENT:')) {
-      try {
-        const elementInfo = JSON.parse(message.replace('CLAUDE_LENS_ELEMENT:', ''));
-        mainWindow?.webContents.send('element-selected', elementInfo);
-      } catch (error) {
-        console.debug('[Console] JSON parse error:', error);
-      }
+      (async () => {
+        try {
+          const elementInfo = JSON.parse(message.replace('CLAUDE_LENS_ELEMENT:', ''));
+          // Enhance with React component info via browser:inspect
+          const enhanced = await enhanceElementWithFramework(elementInfo.selector);
+          if (enhanced?.framework) {
+            elementInfo.framework = enhanced.framework;
+          }
+          mainWindow?.webContents.send('element-selected', elementInfo);
+        } catch (error) {
+          console.debug('[Console] JSON parse error:', error);
+        }
+      })();
       return;
     }
 
     // Check if it's a Ctrl+Click element capture message
     if (message.startsWith('CLAUDE_LENS_CTRL_ELEMENT:')) {
-      try {
-        const elementInfo = JSON.parse(message.replace('CLAUDE_LENS_CTRL_ELEMENT:', ''));
-        mainWindow?.webContents.send('element-selected', elementInfo);
-      } catch (error) {
-        console.debug('[Console] JSON parse error:', error);
-      }
+      (async () => {
+        try {
+          const elementInfo = JSON.parse(message.replace('CLAUDE_LENS_CTRL_ELEMENT:', ''));
+          // Enhance with React component info via browser:inspect
+          const enhanced = await enhanceElementWithFramework(elementInfo.selector);
+          if (enhanced?.framework) {
+            elementInfo.framework = enhanced.framework;
+          }
+          mainWindow?.webContents.send('element-selected', elementInfo);
+        } catch (error) {
+          console.debug('[Console] JSON parse error:', error);
+        }
+      })();
       return;
     }
 
@@ -1680,36 +1914,415 @@ ipcMain.handle('send-to-claude', async (_event, prompt: string, elementContext: 
   return { success: true };
 });
 
+// =============================================================================
+// Platform Detection & Path Utilities (Hardened)
+// =============================================================================
+
+type PlatformType = 'windows' | 'wsl' | 'macos' | 'linux';
+
+interface PlatformInfo {
+  type: PlatformType;
+  canAccessWindowsClipboard: boolean;
+  tempDir: string;
+  powerShellPath: string | null;
+  windowsUsername: string | null;
+}
+
+// Cache platform info to avoid repeated filesystem checks
+let cachedPlatformInfo: PlatformInfo | null = null;
+
+// Safe filesystem helpers that don't throw
+function safeFileExists(filePath: string): boolean {
+  try {
+    return fs.existsSync(filePath);
+  } catch {
+    return false;
+  }
+}
+
+function safeReadDir(dirPath: string): string[] {
+  try {
+    return fs.readdirSync(dirPath);
+  } catch {
+    return [];
+  }
+}
+
+function safeReadFile(filePath: string): string | null {
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+// Detect platform type with multiple indicators
+function detectPlatformType(): PlatformType {
+  // Native Windows
+  if (process.platform === 'win32') {
+    return 'windows';
+  }
+
+  // macOS
+  if (process.platform === 'darwin') {
+    return 'macos';
+  }
+
+  // Linux - check for WSL indicators
+  if (process.platform === 'linux') {
+    // WSL environment variables (most reliable)
+    if (process.env.WSL_DISTRO_NAME || process.env.WSLENV || process.env.WSL_INTEROP) {
+      return 'wsl';
+    }
+
+    // Check /proc/version for Microsoft string
+    const procVersion = safeReadFile('/proc/version');
+    if (procVersion && (procVersion.toLowerCase().includes('microsoft') || procVersion.toLowerCase().includes('wsl'))) {
+      return 'wsl';
+    }
+
+    // Check for WSL interop binary support
+    if (safeFileExists('/proc/sys/fs/binfmt_misc/WSLInterop')) {
+      return 'wsl';
+    }
+
+    // Check for Windows drive mounts (less reliable, could be network mount)
+    if (safeFileExists('/mnt/c/Windows/System32')) {
+      return 'wsl';
+    }
+  }
+
+  return 'linux';
+}
+
+// Find PowerShell executable - check multiple candidate paths
+function findPowerShell(): string | null {
+  const candidates = [
+    // WSL paths to Windows PowerShell
+    '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
+    '/mnt/c/Windows/SysWOW64/WindowsPowerShell/v1.0/powershell.exe',
+    // PowerShell Core (cross-platform)
+    '/mnt/c/Program Files/PowerShell/7/pwsh.exe',
+    '/mnt/c/Program Files (x86)/PowerShell/7/pwsh.exe',
+    // Native Windows paths
+    'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    'C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe',
+    // PATH fallback (works if WSL has windows PATH integration)
+    'powershell.exe',
+  ];
+
+  for (const candidate of candidates) {
+    // Skip PATH-based candidates for existence check
+    if (!candidate.includes('/') && !candidate.includes('\\')) {
+      // For PATH candidates, we'll try them last
+      continue;
+    }
+    if (safeFileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  // Try PATH-based as last resort
+  return 'powershell.exe';
+}
+
+// Find Windows username by checking existing user directories
+function findWindowsUsername(): string | null {
+  const usersDir = '/mnt/c/Users';
+  const skipDirs = new Set(['Default', 'Default User', 'Public', 'All Users', 'desktop.ini']);
+
+  const users = safeReadDir(usersDir);
+  for (const user of users) {
+    if (skipDirs.has(user)) continue;
+
+    // Verify this is a real user directory with expected subdirs
+    const userPath = path.join(usersDir, user);
+    if (safeFileExists(path.join(userPath, 'AppData', 'Local'))) {
+      return user;
+    }
+  }
+
+  // Fallback: try common environment variables
+  const envUser = process.env.WINDOWS_USERNAME || process.env.LOGNAME || process.env.USER;
+  if (envUser && safeFileExists(path.join(usersDir, envUser, 'AppData', 'Local'))) {
+    return envUser;
+  }
+
+  return null;
+}
+
+// Find Windows temp directory with multiple fallback strategies
+function findWindowsTempDir(windowsUsername: string | null): string {
+  // Strategy 1: Windows environment variables (native Windows only)
+  const winTemp = process.env.TEMP || process.env.TMP;
+  if (winTemp && /^[A-Za-z]:\\/.test(winTemp)) {
+    // Convert to WSL path if needed
+    return windowsPathToWsl(winTemp);
+  }
+
+  // Strategy 2: User-specific temp directory
+  if (windowsUsername) {
+    const userTemp = `/mnt/c/Users/${windowsUsername}/AppData/Local/Temp`;
+    if (safeFileExists(userTemp)) {
+      return userTemp;
+    }
+  }
+
+  // Strategy 3: Scan for any valid user temp
+  const usersDir = '/mnt/c/Users';
+  const skipDirs = new Set(['Default', 'Default User', 'Public', 'All Users']);
+  const users = safeReadDir(usersDir);
+  for (const user of users) {
+    if (skipDirs.has(user)) continue;
+    const userTemp = path.join(usersDir, user, 'AppData', 'Local', 'Temp');
+    if (safeFileExists(userTemp)) {
+      return userTemp;
+    }
+  }
+
+  // Strategy 4: Windows system temp (always exists, may need admin)
+  const systemTemp = '/mnt/c/Windows/Temp';
+  if (safeFileExists(systemTemp)) {
+    return systemTemp;
+  }
+
+  // Strategy 5: Linux temp (won't work for PowerShell but prevents crash)
+  console.warn('[Platform] No Windows temp directory found, falling back to Linux temp');
+  return os.tmpdir();
+}
+
+// Convert Windows path to WSL path
+function windowsPathToWsl(winPath: string): string {
+  // C:\Users\Name -> /mnt/c/Users/Name
+  return winPath
+    .replace(/^([A-Za-z]):/, (_, drive) => `/mnt/${drive.toLowerCase()}`)
+    .replace(/\\/g, '/');
+}
+
+// Get platform info (cached)
+function getPlatformInfo(): PlatformInfo {
+  if (cachedPlatformInfo) {
+    return cachedPlatformInfo;
+  }
+
+  const type = detectPlatformType();
+  const windowsUsername = (type === 'wsl' || type === 'windows') ? findWindowsUsername() : null;
+  const powerShellPath = (type === 'wsl' || type === 'windows') ? findPowerShell() : null;
+
+  let tempDir: string;
+  let canAccessWindowsClipboard: boolean;
+
+  switch (type) {
+    case 'windows':
+      tempDir = process.env.TEMP || process.env.TMP || 'C:\\Windows\\Temp';
+      canAccessWindowsClipboard = true;
+      break;
+    case 'wsl':
+      tempDir = findWindowsTempDir(windowsUsername);
+      canAccessWindowsClipboard = powerShellPath !== null;
+      break;
+    default:
+      tempDir = os.tmpdir();
+      canAccessWindowsClipboard = false;
+  }
+
+  cachedPlatformInfo = {
+    type,
+    canAccessWindowsClipboard,
+    tempDir,
+    powerShellPath,
+    windowsUsername,
+  };
+
+  console.log('[Platform] Detected:', JSON.stringify(cachedPlatformInfo, null, 2));
+
+  return cachedPlatformInfo;
+}
+
+// PowerShell script to check and save clipboard image (for WSL)
+function createPowerShellScript(outputPath: string): string {
+  // Convert WSL path to Windows path for PowerShell
+  const winPath = outputPath.replace(/^\/mnt\/([a-z])\//, '$1:\\\\').replace(/\//g, '\\\\');
+
+  return `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+$result = @{ hasImage = $false; path = ""; error = "" }
+
+try {
+    # Check for file drops first (copied image files)
+    $files = [System.Windows.Forms.Clipboard]::GetFileDropList()
+    if ($files -and $files.Count -gt 0) {
+        $imageExtensions = @('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')
+        foreach ($file in $files) {
+            $ext = [System.IO.Path]::GetExtension($file).ToLower()
+            if ($imageExtensions -contains $ext) {
+                Copy-Item -Path $file -Destination "${winPath}" -Force
+                $result.hasImage = $true
+                $result.path = "${winPath}"
+                break
+            }
+        }
+    }
+
+    # If no file drop, check for bitmap data (screenshots)
+    if (-not $result.hasImage) {
+        $image = [System.Windows.Forms.Clipboard]::GetImage()
+        if ($image) {
+            $image.Save("${winPath}", [System.Drawing.Imaging.ImageFormat]::Png)
+            $result.hasImage = $true
+            $result.path = "${winPath}"
+            $image.Dispose()
+        }
+    }
+} catch {
+    $result.error = $_.Exception.Message
+}
+
+$result | ConvertTo-Json
+`;
+}
+
+// Run PowerShell and get clipboard image (WSL/Windows workaround)
+async function getClipboardImageWSL(): Promise<{ hasImage: boolean; path?: string; error?: string }> {
+  const platform = getPlatformInfo();
+
+  // Verify we can access Windows clipboard
+  if (!platform.canAccessWindowsClipboard) {
+    return { hasImage: false, error: 'Windows clipboard not accessible on this platform' };
+  }
+
+  if (!platform.powerShellPath) {
+    return { hasImage: false, error: 'PowerShell not found' };
+  }
+
+  // Store in local const for TypeScript narrowing (null check done above)
+  const powerShellPath = platform.powerShellPath;
+
+  return new Promise((resolve) => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filename = `claude-lens-${timestamp}.png`;
+    const imagePath = path.join(platform.tempDir, filename);
+    console.log('[Clipboard WSL] Using temp path:', imagePath);
+    console.log('[Clipboard WSL] Using PowerShell:', powerShellPath);
+
+    const script = createPowerShellScript(imagePath);
+
+    execFile(
+      powerShellPath,
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      { timeout: 15000 },  // Increased timeout for slow systems
+      (error: Error | null, stdout: string, stderr: string) => {
+        if (error) {
+          console.error('[Clipboard WSL] PowerShell error:', error.message);
+          if (stderr) console.error('[Clipboard WSL] stderr:', stderr);
+          resolve({ hasImage: false, error: error.message });
+          return;
+        }
+
+        try {
+          // Handle empty or whitespace-only output
+          const trimmedOutput = stdout.trim();
+          if (!trimmedOutput) {
+            console.error('[Clipboard WSL] Empty PowerShell output');
+            resolve({ hasImage: false, error: 'Empty PowerShell output' });
+            return;
+          }
+
+          const result = JSON.parse(trimmedOutput);
+          console.log('[Clipboard WSL] Result:', result);
+
+          if (result.hasImage && result.path) {
+            // Convert Windows path back to WSL path
+            const wslPath = windowsPathToWsl(result.path);
+            resolve({ hasImage: true, path: wslPath });
+          } else {
+            resolve({ hasImage: false, error: result.error || 'No image in clipboard' });
+          }
+        } catch (parseError) {
+          console.error('[Clipboard WSL] Parse error:', parseError);
+          console.error('[Clipboard WSL] Raw stdout:', stdout);
+          resolve({ hasImage: false, error: 'Failed to parse PowerShell output' });
+        }
+      }
+    );
+  });
+}
+
 // Clipboard image detection
-ipcMain.handle('clipboard:hasImage', () => {
+ipcMain.handle('clipboard:hasImage', async () => {
+  const platform = getPlatformInfo();
+  console.log('[Clipboard] Platform:', platform.type);
+
+  // Always try native Electron clipboard first
+  const formats = clipboard.availableFormats();
   const image = clipboard.readImage();
-  return !image.isEmpty();
+  const hasImage = !image.isEmpty();
+  console.log('[Clipboard] availableFormats:', formats);
+  console.log('[Clipboard] Native hasImage:', hasImage, 'size:', image.getSize());
+
+  // If native works, use it
+  if (hasImage) {
+    return true;
+  }
+
+  // If native doesn't work and we can access Windows clipboard, try PowerShell
+  if (platform.canAccessWindowsClipboard && (platform.type === 'wsl' || formats.length === 0)) {
+    console.log('[Clipboard] Trying PowerShell workaround...');
+    const result = await getClipboardImageWSL();
+    // Cache the result for saveImage call
+    (global as Record<string, unknown>).__clipboardCache = result;
+    return result.hasImage;
+  }
+
+  return false;
 });
 
 // Save clipboard image to temp file and return path
 ipcMain.handle('clipboard:saveImage', async () => {
+  // Check for cached PowerShell result first
+  const cached = (global as Record<string, unknown>).__clipboardCache as { hasImage: boolean; path?: string; error?: string } | undefined;
+  if (cached?.hasImage && cached?.path) {
+    console.log('[Clipboard] Using cached PowerShell image:', cached.path);
+    // Clear cache after use
+    (global as Record<string, unknown>).__clipboardCache = undefined;
+    return { success: true, path: cached.path };
+  }
+
+  // Try native Electron clipboard
   try {
     const image = clipboard.readImage();
-    if (image.isEmpty()) {
-      return { success: false, error: 'No image in clipboard' };
+    if (!image.isEmpty()) {
+      // Generate timestamped filename
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const filename = `claude-lens-${timestamp}.png`;
+      const tempDir = os.tmpdir();
+      const imagePath = path.join(tempDir, filename);
+
+      // Save as PNG
+      const pngBuffer = image.toPNG();
+      await fsPromises.writeFile(imagePath, pngBuffer);
+
+      console.log(`[Clipboard] Saved native image to ${imagePath}`);
+      return { success: true, path: imagePath };
     }
-
-    // Generate timestamped filename
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const filename = `claude-lens-${timestamp}.png`;
-    const tempDir = os.tmpdir();
-    const imagePath = path.join(tempDir, filename);
-
-    // Save as PNG
-    const pngBuffer = image.toPNG();
-    await fsPromises.writeFile(imagePath, pngBuffer);
-
-    console.log(`[Clipboard] Saved image to ${imagePath}`);
-    return { success: true, path: imagePath };
   } catch (error) {
-    console.error('[Clipboard] Failed to save image:', error);
-    return { success: false, error: String(error) };
+    console.error('[Clipboard] Native save failed:', error);
   }
+
+  // Fall back to PowerShell
+  console.log('[Clipboard] Trying PowerShell fallback for save...');
+  const result = await getClipboardImageWSL();
+  if (result.hasImage && result.path) {
+    return { success: true, path: result.path };
+  }
+  return { success: false, error: result.error || 'No image in clipboard' };
+});
+
+// Read text from clipboard (works without document focus)
+ipcMain.handle('clipboard:readText', () => {
+  return clipboard.readText();
 });
 
 // Forward PTY output to renderer

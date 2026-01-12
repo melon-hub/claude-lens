@@ -165,7 +165,7 @@ const sourceAvailable = getEl<HTMLDivElement>('sourceAvailable');
 const sourceLocation = getEl<HTMLElement>('sourceLocation');
 const copySourceBtn = getEl<HTMLButtonElement>('copySourceBtn');
 const sourceUnavailable = getEl<HTMLDivElement>('sourceUnavailable');
-const fixSourceBtn = getEl<HTMLButtonElement>('fixSourceBtn');
+const sourceNoFramework = getEl<HTMLDivElement>('sourceNoFramework');
 
 // Elements - Chips and Prompt
 const elementChips = getEl<HTMLDivElement>('elementChips');
@@ -478,6 +478,62 @@ async function init() {
   // Load search addon for Ctrl+F functionality
   const searchAddon = new SearchAddon();
   terminal.loadAddon(searchAddon);
+
+  // Custom key handler for image paste (must intercept before xterm's default paste)
+  terminal.attachCustomKeyEventHandler((e) => {
+    // Ctrl+Shift+V - check for image paste
+    if (e.ctrlKey && e.shiftKey && (e.key === 'v' || e.key === 'V') && e.type === 'keydown') {
+      // Handle async image check
+      (async () => {
+        if (!claudeRunning) return;
+        try {
+          const hasImage = await window.claudeLens.clipboard.hasImage();
+          console.log('[Clipboard] hasImage:', hasImage);
+          if (hasImage) {
+            setStatus('Saving image...');
+            const result = await window.claudeLens.clipboard.saveImage();
+            console.log('[Clipboard] saveImage result:', result);
+            if (result.success && result.path) {
+              window.claudeLens.pty.write(`@${result.path} `);
+              setStatus('Image pasted', true);
+              setTimeout(() => {
+                if (browserLoaded) setStatus('Connected', true);
+              }, 2000);
+            } else {
+              setStatus(`Image error: ${result.error}`);
+            }
+          } else {
+            // No image - paste text via IPC (avoids "document not focused" error)
+            const text = await window.claudeLens.clipboard.readText();
+            if (text) {
+              window.claudeLens.pty.write(text);
+            }
+          }
+        } catch (err) {
+          console.error('[Clipboard] Paste error:', err);
+        }
+      })();
+      // Return false to prevent xterm's default handling
+      return false;
+    }
+
+    // Ctrl+Shift+C - copy selection
+    if (e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C') && e.type === 'keydown') {
+      const selection = terminal.getSelection();
+      if (selection) {
+        navigator.clipboard.writeText(selection).then(() => {
+          setStatus('Copied to clipboard');
+          setTimeout(() => {
+            if (browserLoaded) setStatus('Connected', true);
+          }, 2000);
+        });
+        return false;
+      }
+    }
+
+    // Allow all other keys
+    return true;
+  });
 
   fitAddon.fit();
 
@@ -1003,27 +1059,36 @@ function updateContextPanel(element: ElementInfo) {
       componentList.appendChild(row);
     }
 
-    // SOURCE section - show status based on whether source info is available
+  } else {
+    componentInfo.classList.add('hidden');
+  }
+
+  // SOURCE section - always show to indicate whether source detection is working
+  // Three states: available (file:line), missing (framework but no source), no-framework (hint)
+  sourceInfo.classList.remove('hidden');
+  sourceAvailable.classList.add('hidden');
+  sourceUnavailable.classList.add('hidden');
+  sourceNoFramework.classList.add('hidden');
+
+  if (element.framework && element.framework.components.length > 0) {
     const firstComponent = element.framework.components[0];
     if (firstComponent?.source) {
       // Source available - show file:line
-      sourceInfo.classList.remove('hidden');
       sourceStatus.textContent = 'Available';
       sourceStatus.className = 'source-status available';
       sourceAvailable.classList.remove('hidden');
-      sourceUnavailable.classList.add('hidden');
       sourceLocation.textContent = `${firstComponent.source.fileName}:${firstComponent.source.lineNumber}`;
     } else {
-      // Source NOT available - show warning with fix button
-      sourceInfo.classList.remove('hidden');
+      // Framework detected but source NOT available - show warning with fix button
       sourceStatus.textContent = 'Missing';
       sourceStatus.className = 'source-status unavailable';
-      sourceAvailable.classList.add('hidden');
       sourceUnavailable.classList.remove('hidden');
     }
   } else {
-    componentInfo.classList.add('hidden');
-    sourceInfo.classList.add('hidden');
+    // No framework detected - show hint to select a component
+    sourceStatus.textContent = '';
+    sourceStatus.className = 'source-status';
+    sourceNoFramework.classList.remove('hidden');
   }
 
   // HIERARCHY section - clickable parent chain
@@ -1895,11 +1960,8 @@ document.addEventListener('keydown', async (e) => {
     toggleFreezeHover();
   }
 
-  // Ctrl+I to toggle inspect mode
-  if (e.ctrlKey && (e.key === 'i' || e.key === 'I') && browserLoaded) {
-    e.preventDefault();
-    inspectBtn.click();
-  }
+  // Ctrl+Shift+I is reserved for DevTools - don't intercept it
+  // Inspect mode is accessible via Ctrl+hover or the Inspect button
 
   // Ctrl+R to refresh (when not in terminal)
   if (e.ctrlKey && (e.key === 'r' || e.key === 'R') && browserLoaded && !isTyping) {
@@ -1907,56 +1969,8 @@ document.addEventListener('keydown', async (e) => {
     refreshBtn.click();
   }
 
-  // Ctrl+Shift+C to copy selected text from terminal
-  if (e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
-    const selection = terminal.getSelection();
-    if (selection) {
-      e.preventDefault();
-      try {
-        await navigator.clipboard.writeText(selection);
-        setStatus('Copied to clipboard');
-        // Clear status after 2 seconds
-        setTimeout(() => {
-          if (browserLoaded) setStatus('Connected', true);
-        }, 2000);
-      } catch (err) {
-        console.error('Failed to copy:', err);
-      }
-    }
-  }
-
-  // Ctrl+Shift+V to paste into terminal (with image support)
-  if (e.ctrlKey && e.shiftKey && (e.key === 'v' || e.key === 'V')) {
-    if (claudeRunning) {
-      e.preventDefault();
-      try {
-        // Check for image first
-        const hasImage = await window.claudeLens.clipboard.hasImage();
-        if (hasImage) {
-          setStatus('Saving image...');
-          const result = await window.claudeLens.clipboard.saveImage();
-          if (result.success && result.path) {
-            // Insert image path with @ prefix (Claude Code convention)
-            window.claudeLens.pty.write(`@${result.path} `);
-            setStatus('Image pasted', true);
-            setTimeout(() => {
-              if (browserLoaded) setStatus('Connected', true);
-            }, 2000);
-          } else {
-            setStatus(`Image error: ${result.error}`);
-          }
-        } else {
-          // Fall back to text paste
-          const text = await navigator.clipboard.readText();
-          if (text) {
-            window.claudeLens.pty.write(text);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to paste:', err);
-      }
-    }
-  }
+  // Note: Ctrl+Shift+C and Ctrl+Shift+V are handled by terminal.attachCustomKeyEventHandler
+  // in the init() function for proper interception before xterm processes them
 });
 
 // Console drawer toggle
@@ -2118,20 +2132,24 @@ sendPromptBtn.addEventListener('click', async () => {
 
   if (result.success) {
     promptInput.value = '';
-    // Clear selected elements after sending
-    selectedElements = [];
-    updateElementChips();
-    contextEmpty.classList.remove('hidden');
-    elementInfo.classList.add('hidden');
-    componentInfo.classList.add('hidden');
-    sourceInfo.classList.add('hidden');
-    pathInfo.classList.add('hidden');
-    attributesInfo.classList.add('hidden');
-    stylesInfo.classList.add('hidden');
-    positionInfo.classList.add('hidden');
-    textInfo.classList.add('hidden');
     terminal.focus();
     setStatus('Sent to Claude', true);
+    // Delay clearing context to let Claude's output appear first (smoother transition)
+    setTimeout(() => {
+      selectedElements = [];
+      updateElementChips();
+      contextEmpty.classList.remove('hidden');
+      elementInfo.classList.add('hidden');
+      componentInfo.classList.add('hidden');
+      sourceInfo.classList.add('hidden');
+      pathInfo.classList.add('hidden');
+      attributesInfo.classList.add('hidden');
+      stylesInfo.classList.add('hidden');
+      positionInfo.classList.add('hidden');
+      textInfo.classList.add('hidden');
+      descriptionInfo.classList.add('hidden');
+      hierarchyInfo.classList.add('hidden');
+    }, 500);
   } else {
     hideThinking();
     alert('Failed to send to Claude');
@@ -2201,33 +2219,6 @@ copySourceBtn.addEventListener('click', () => {
   }
 });
 
-// Fix source maps button - asks Claude to enable source maps in the project
-fixSourceBtn.addEventListener('click', async () => {
-  if (!claudeRunning) {
-    alert('Start Claude first!');
-    return;
-  }
-
-  const prompt = `The React source maps are not available for this project, which means I can't see file:line locations when inspecting elements.
-
-Please enable React source maps by updating the project configuration:
-
-1. For Vite projects: Ensure @vitejs/plugin-react is installed and configured in vite.config.ts
-2. For Create React App: Source maps should be enabled by default in development
-3. For custom webpack: Enable the babel plugin that adds __source to JSX
-
-Check the project's bundler config and enable source maps for development mode. The goal is to have React's _debugSource property available on fiber nodes.`;
-
-  showThinking();
-  const result = await window.claudeLens.sendToClaude(prompt, '');
-  if (result.success) {
-    terminal.focus();
-    setStatus('Sent to Claude', true);
-  } else {
-    hideThinking();
-    alert('Failed to send to Claude');
-  }
-});
 
 // Status helper
 function setStatus(text: string, connected = false) {
@@ -2408,7 +2399,8 @@ terminalEl.addEventListener('contextmenu', (e) => {
           setStatus(`Image error: ${result.error}`);
         }
       } else {
-        const text = await navigator.clipboard.readText();
+        // Paste text via IPC (avoids "document not focused" error)
+        const text = await window.claudeLens.clipboard.readText();
         if (text) {
           window.claudeLens.pty.write(text);
         }

@@ -18,11 +18,7 @@ import {
   formatConsole,
   type ContextMode,
 } from './context-formatter';
-import {
-  MCP_TOOL_ICONS,
-  CHAR_SUBSTITUTIONS,
-  MCP_INDICATORS,
-} from './constants/mcp-tool-icons';
+import { TERMINAL_OPTIONS, substituteChars } from './terminal';
 import { debounce, waitForFonts, runFontDiagnostics, getEl, copyToClipboard } from './utils';
 import {
   consoleBuffer,
@@ -147,27 +143,8 @@ const serverStatus = getEl<HTMLSpanElement>('serverStatus');
 const playwrightStatus = getEl<HTMLSpanElement>('playwrightStatus');
 const viewportStatus = getEl<HTMLSpanElement>('viewportStatus');
 
-// Terminal setup with optimized scrollback buffer
-// Font stack: Main font -> Symbols font for icons -> System fonts for standard Unicode symbols
-const terminal = new Terminal({
-  theme: {
-    background: '#1e1e1e',
-    foreground: '#cccccc',
-    cursor: '#cccccc',
-    selectionBackground: '#264f78',
-  },
-  // Complete font stack:
-  // 1. JetBrains Mono NF - main text + some icons
-  // 2. Symbols Nerd Font - Nerd Font icons
-  // 3. Noto Sans Symbols 2 - Unicode symbols (U+23F5 play buttons for Claude Code checkboxes)
-  // 4. System symbol fonts - standard Unicode symbols
-  // 5. monospace - final fallback
-  fontFamily: "'JetBrains Mono NF Bundled', 'Symbols Nerd Font', 'Noto Sans Symbols 2', 'Segoe UI Symbol', 'Apple Symbols', monospace",
-  fontSize: 13,
-  cursorBlink: true,
-  allowProposedApi: true,
-  scrollback: 5000, // Limit scrollback to control memory usage
-});
+// Terminal setup - configuration from terminal module
+const terminal = new Terminal(TERMINAL_OPTIONS);
 
 const fitAddon = new FitAddon();
 const unicode11Addon = new Unicode11Addon();
@@ -444,43 +421,7 @@ async function init() {
     terminal.refresh(0, terminal.rows - 1);
   }, 500);
 
-  // Smart substitution: detect MCP patterns and use semantic icons
-  // Constants imported from ./constants/mcp-tool-icons.ts
-  const substituteChars = (data: string): string => {
-    let result = data;
-
-    // For each MCP indicator character, check if it's followed by a known pattern
-    for (const indicator of MCP_INDICATORS) {
-      if (!result.includes(indicator)) continue;
-
-      // Find all occurrences of the indicator
-      const regex = new RegExp(indicator + '\\s*(.{0,50})', 'g');
-      result = result.replace(regex, (match, afterIndicator) => {
-        // Check each MCP tool pattern
-        for (const tool of MCP_TOOL_ICONS) {
-          if (tool.pattern.test(afterIndicator)) {
-            // Replace indicator with semantic icon, optionally transform text
-            const displayText = tool.transform || afterIndicator;
-            return tool.icon + ' ' + displayText;
-          }
-        }
-        // Fallback: use basic substitution
-        const fallback = CHAR_SUBSTITUTIONS[indicator] || indicator;
-        return fallback + ' ' + afterIndicator;
-      });
-    }
-
-    // Also do basic substitution for any remaining characters
-    for (const [from, to] of Object.entries(CHAR_SUBSTITUTIONS)) {
-      if (result.includes(from)) {
-        result = result.replaceAll(from, to);
-      }
-    }
-
-    return result;
-  };
-
-  // PTY data handler
+  // PTY data handler (substituteChars imported from terminal module)
   window.claudeLens.pty.onData((data) => {
     // Hide thinking indicator when we receive output from Claude
     if (isThinking) {

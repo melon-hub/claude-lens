@@ -55,6 +55,12 @@ Use the `claude_lens/*` MCP tools for browser automation:
 | `claude_lens/handle_dialog` | Accept or dismiss alert/confirm dialogs |
 | `claude_lens/evaluate` | Execute custom JavaScript |
 
+### Development Tools
+| Tool | Purpose |
+|------|---------|
+| `claude_lens/set_viewport` | Change viewport size for responsive testing (presets: full, desktop, tablet, mobile, or custom width) |
+| `claude_lens/restart_server` | Restart the dev server (after config changes, new dependencies, or when hot reload fails) |
+
 ## HTTP API (Fallback)
 
 If MCP tools aren't available, use curl to call the local HTTP API on port 9333:

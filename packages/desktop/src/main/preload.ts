@@ -42,7 +42,7 @@ contextBridge.exposeInMainWorld('claudeLens', {
     inspect: (x: number, y: number) => ipcRenderer.invoke('browser:inspect', x, y),
     highlight: (selector: string) => ipcRenderer.invoke('browser:highlight', selector),
     getBounds: () => ipcRenderer.invoke('browser:getBounds'),
-    updateBounds: (width: number, drawerHeight?: number) => ipcRenderer.invoke('browser:updateBounds', width, drawerHeight || 0),
+    updateBounds: (width: number, drawerHeight?: number, panelWidth?: number) => ipcRenderer.invoke('browser:updateBounds', width, drawerHeight || 0, panelWidth || width),
     enableInspect: () => ipcRenderer.invoke('browser:enableInspect'),
     disableInspect: () => ipcRenderer.invoke('browser:disableInspect'),
     freezeHover: () => ipcRenderer.invoke('browser:freezeHover'),
@@ -84,6 +84,21 @@ contextBridge.exposeInMainWorld('claudeLens', {
       ipcRenderer.on('playwright:error', handler);
       return () => ipcRenderer.removeListener('playwright:error', handler);
     },
+    onSetViewport: (callback: (width: number) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, width: number) => callback(width);
+      ipcRenderer.on('browser:setViewport', handler);
+      return () => ipcRenderer.removeListener('browser:setViewport', handler);
+    },
+    onResetViewport: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on('browser:resetViewport', handler);
+      return () => ipcRenderer.removeListener('browser:resetViewport', handler);
+    },
+    onPageLoaded: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on('browser:loaded', handler);
+      return () => ipcRenderer.removeListener('browser:loaded', handler);
+    },
   },
 
   // Project management APIs
@@ -92,10 +107,28 @@ contextBridge.exposeInMainWorld('claudeLens', {
     start: (options: { useDevServer: boolean }) => ipcRenderer.invoke('project:start', options),
     getInfo: () => ipcRenderer.invoke('project:getInfo'),
     stopServer: () => ipcRenderer.invoke('project:stopServer'),
+    restartServer: () => ipcRenderer.invoke('project:restartServer'),
+    getRecent: () => ipcRenderer.invoke('project:getRecent') as Promise<Array<{ name: string; path: string; useDevServer: boolean; lastOpened: number }>>,
+    openRecent: (projectPath: string) => ipcRenderer.invoke('project:openRecent', projectPath) as Promise<{ success: boolean; error?: string }>,
     onDetected: (callback: (info: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, info: unknown) => callback(info);
       ipcRenderer.on('project:detected', handler);
       return () => ipcRenderer.removeListener('project:detected', handler);
+    },
+    onClosed: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on('project:closed', handler);
+      return () => ipcRenderer.removeListener('project:closed', handler);
+    },
+    onLoading: (callback: (info: { name: string; useDevServer: boolean }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, info: { name: string; useDevServer: boolean }) => callback(info);
+      ipcRenderer.on('project:loading', handler);
+      return () => ipcRenderer.removeListener('project:loading', handler);
+    },
+    onLoadingError: (callback: (error: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, error: string) => callback(error);
+      ipcRenderer.on('project:loadingError', handler);
+      return () => ipcRenderer.removeListener('project:loadingError', handler);
     },
   },
 

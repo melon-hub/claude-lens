@@ -16,6 +16,17 @@ import { chromium, Browser, BrowserContext, Page } from 'playwright-core';
 // Default port for CDP - must match the --remote-debugging-port flag
 const DEFAULT_CDP_PORT = 9222;
 
+/**
+ * Format a user-friendly timeout error message
+ */
+function formatTimeoutError(action: string, selector: string, timeout: number, hint?: string): Error {
+  let message = `${action} timeout: "${selector}" not found within ${timeout}ms.`;
+  if (hint) {
+    message += ` ${hint}`;
+  }
+  return new Error(message);
+}
+
 export class PlaywrightAdapter {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
@@ -429,9 +440,11 @@ export class PlaywrightAdapter {
         // On last attempt, throw enhanced error
         if (attempt === retries) {
           if (lastError.message.includes('Timeout')) {
-            throw new Error(
-              `Click timeout: "${selector}" not found after ${retries + 1} attempts (${timeout}ms total). ` +
-              `Element may not exist or is not visible. Try using browser_snapshot to find the correct selector.`
+            throw formatTimeoutError(
+              'Click',
+              selector,
+              timeout,
+              `Not found after ${retries + 1} attempts. Try using browser_snapshot to find the correct selector.`
             );
           }
           throw lastError;
@@ -470,10 +483,7 @@ export class PlaywrightAdapter {
     } catch (error) {
       const err = error as Error;
       if (err.message.includes('Timeout')) {
-        throw new Error(
-          `Click by text timeout: No visible element with text "${text}" found within ${timeout}ms. ` +
-          `Try using browser_snapshot to see available elements.`
-        );
+        throw formatTimeoutError('Click by text', `text="${text}"`, timeout, 'Try using browser_snapshot to see available elements.');
       }
       throw error;
     }
@@ -497,10 +507,7 @@ export class PlaywrightAdapter {
     } catch (error) {
       const err = error as Error;
       if (err.message.includes('Timeout')) {
-        throw new Error(
-          `Fill timeout: "${selector}" not found within ${fillOptions.timeout}ms. ` +
-          `Ensure the input element exists and is editable.`
-        );
+        throw formatTimeoutError('Fill', selector, fillOptions.timeout, 'Ensure the input element exists and is editable.');
       }
       if (err.message.includes('not an <input>') || err.message.includes('not editable')) {
         throw new Error(
@@ -533,9 +540,7 @@ export class PlaywrightAdapter {
     } catch (error) {
       const err = error as Error;
       if (err.message.includes('Timeout')) {
-        throw new Error(
-          `Type timeout: "${selector}" not found or not visible within ${timeout}ms.`
-        );
+        throw formatTimeoutError('Type', selector, timeout, 'Element not found or not visible.');
       }
       throw error;
     }
@@ -571,9 +576,7 @@ export class PlaywrightAdapter {
     } catch (error) {
       const err = error as Error;
       if (err.message.includes('Timeout')) {
-        throw new Error(
-          `Select timeout: "${selector}" not found within ${selectOptions.timeout}ms.`
-        );
+        throw formatTimeoutError('Select', selector, selectOptions.timeout);
       }
       if (err.message.includes('not a <select>')) {
         throw new Error(
@@ -603,9 +606,7 @@ export class PlaywrightAdapter {
     } catch (error) {
       const err = error as Error;
       if (err.message.includes('Timeout')) {
-        throw new Error(
-          `Hover timeout: "${selector}" not found within ${hoverOptions.timeout}ms.`
-        );
+        throw formatTimeoutError('Hover', selector, hoverOptions.timeout);
       }
       throw error;
     }
@@ -634,10 +635,7 @@ export class PlaywrightAdapter {
     } catch (error) {
       const err = error as Error;
       if (err.message.includes('Timeout')) {
-        throw new Error(
-          `Drag timeout: Source "${sourceSelector}" or target "${targetSelector}" ` +
-          `not found within ${dragOptions.timeout}ms.`
-        );
+        throw formatTimeoutError('Drag', `${sourceSelector} → ${targetSelector}`, dragOptions.timeout);
       }
       throw error;
     }
@@ -688,9 +686,7 @@ export class PlaywrightAdapter {
     } catch (error) {
       const err = error as Error;
       if (err.message.includes('Timeout')) {
-        throw new Error(
-          `Wait timeout: "${selector}" did not become ${state} within ${timeout}ms.`
-        );
+        throw formatTimeoutError('Wait', selector, timeout, `Element did not become ${state}.`);
       }
       throw error;
     }

@@ -8,7 +8,7 @@
     "dev:main": "tsc -p tsconfig.main.json --watch",
     "dev:renderer": "vite",
     "dev:electron": "cross-env NODE_ENV=development electron .",
-    "build": "tsc -p tsconfig.main.json && vite build",
+    "build": "tsc -p tsconfig.main.json && mkdir -p dist/main/inject && cp src/main/inject/*.js dist/main/inject/ && vite build",
     "start": "electron .",
     "package": "electron-builder"
   },

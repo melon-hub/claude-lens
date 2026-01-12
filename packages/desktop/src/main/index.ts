@@ -77,6 +77,77 @@ let currentProject: ProjectInfo | null = null;
 let devServerManager: DevServerManager | null = null;
 let staticServer: StaticServer | null = null;
 
+// Recent projects management
+interface RecentProject {
+  path: string;
+  name: string;
+  lastOpened: number;
+  useDevServer: boolean; // Remember the server type preference
+}
+const MAX_RECENT_PROJECTS = 5;
+let recentProjects: RecentProject[] = [];
+
+function getRecentProjectsPath(): string {
+  return path.join(app.getPath('userData'), 'recent-projects.json');
+}
+
+async function loadRecentProjects(): Promise<void> {
+  try {
+    const data = await fsPromises.readFile(getRecentProjectsPath(), 'utf-8');
+    const parsed = JSON.parse(data);
+
+    // Validate structure - must be an array
+    if (!Array.isArray(parsed)) {
+      console.warn('[RecentProjects] Invalid data format, expected array');
+      recentProjects = [];
+      return;
+    }
+
+    // Filter out invalid entries
+    recentProjects = parsed.filter((p): p is RecentProject => {
+      return typeof p === 'object' && p !== null &&
+             typeof p.path === 'string' &&
+             typeof p.name === 'string' &&
+             typeof p.lastOpened === 'number' &&
+             typeof p.useDevServer === 'boolean';
+    }).slice(0, MAX_RECENT_PROJECTS);
+  } catch (error) {
+    // File not found is expected on first run
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      recentProjects = [];
+      return;
+    }
+    // Log unexpected errors
+    console.error('[RecentProjects] Failed to load:', error);
+    recentProjects = [];
+  }
+}
+
+async function saveRecentProjects(): Promise<void> {
+  try {
+    await fsPromises.writeFile(getRecentProjectsPath(), JSON.stringify(recentProjects, null, 2));
+  } catch (error) {
+    console.error('[RecentProjects] Failed to save:', error);
+  }
+}
+
+async function addRecentProject(projectPath: string, projectName: string, useDevServer: boolean): Promise<void> {
+  // Remove if already exists
+  recentProjects = recentProjects.filter(p => p.path !== projectPath);
+  // Add to front
+  recentProjects.unshift({
+    path: projectPath,
+    name: projectName,
+    lastOpened: Date.now(),
+    useDevServer,
+  });
+  // Limit to max
+  recentProjects = recentProjects.slice(0, MAX_RECENT_PROJECTS);
+  await saveRecentProjects();
+  // Update menu to show new recent project
+  createMenu();
+}
+
 // Console message buffer for MCP server
 interface ConsoleMessage {
   level: string;
@@ -90,6 +161,26 @@ const consoleBuffer = new CircularBuffer<ConsoleMessage>(MAX_CONSOLE_MESSAGES);
  * Create the application menu
  */
 function createMenu(): void {
+  // Build recent projects submenu
+  const recentProjectsSubmenu: Electron.MenuItemConstructorOptions[] = recentProjects.length > 0
+    ? [
+        ...recentProjects.map((project, index) => ({
+          label: `${index + 1}. ${project.name}`,
+          sublabel: project.path,
+          click: () => openRecentProject(project),
+        })),
+        { type: 'separator' as const },
+        {
+          label: 'Clear Recent Projects',
+          click: async () => {
+            recentProjects = [];
+            await saveRecentProjects();
+            createMenu();
+          },
+        },
+      ]
+    : [{ label: 'No Recent Projects', enabled: false }];
+
   const template: Electron.MenuItemConstructorOptions[] = [
     {
       label: 'File',
@@ -98,6 +189,26 @@ function createMenu(): void {
           label: 'Open Project...',
           accelerator: 'CmdOrCtrl+O',
           click: () => openProjectDialog(),
+        },
+        {
+          label: 'Open Recent',
+          submenu: recentProjectsSubmenu,
+        },
+        {
+          label: 'Close Project',
+          accelerator: 'CmdOrCtrl+W',
+          click: () => closeProject(),
+        },
+        { type: 'separator' },
+        {
+          label: 'Restart App',
+          accelerator: 'CmdOrCtrl+Shift+R',
+          enabled: process.env.NODE_ENV !== 'development',
+          click: () => {
+            // Only works in production - in dev mode, use terminal to restart
+            app.relaunch();
+            app.exit(0);
+          },
         },
         { type: 'separator' },
         { role: 'quit' },
@@ -174,9 +285,32 @@ async function openProjectDialog(): Promise<void> {
 }
 
 /**
+ * Close the current project and reset state
+ */
+async function closeProject(): Promise<void> {
+  // Stop any running servers and Claude Code
+  await Promise.all([
+    devServerManager?.stop(),
+    staticServer?.stop(),
+    ptyManager?.dispose(),
+  ]);
+  devServerManager = null;
+  staticServer = null;
+  currentProject = null;
+
+  // Clear the BrowserView
+  if (browserView) {
+    browserView.webContents.loadURL('about:blank');
+  }
+
+  // Notify renderer to reset UI
+  mainWindow?.webContents.send('project:closed');
+}
+
+/**
  * Open and analyze a project folder
  */
-async function openProject(projectPath: string): Promise<void> {
+async function openProject(projectPath: string, skipModal = false): Promise<void> {
   try {
     // Analyze the project
     currentProject = await analyzeProject(projectPath);
@@ -192,11 +326,50 @@ async function openProject(projectPath: string): Promise<void> {
       }
     }
 
-    // Send to renderer to show dialog
-    mainWindow?.webContents.send('project:detected', currentProject);
+    // Send to renderer to show dialog (unless opening from recent projects)
+    if (!skipModal) {
+      mainWindow?.webContents.send('project:detected', currentProject);
+    }
   } catch (err) {
     console.error('Failed to analyze project:', err);
     dialog.showErrorBox('Error', `Failed to open project: ${err}`);
+  }
+}
+
+/**
+ * Open a recent project directly (skip modal, use stored server preference)
+ */
+async function openRecentProject(recent: RecentProject): Promise<void> {
+  // Analyze the project (skip modal since we already know server preference)
+  await openProject(recent.path, true);
+
+  // If project was loaded successfully, start it with stored preference
+  if (currentProject) {
+    // Notify renderer to show loading state
+    mainWindow?.webContents.send('project:loading', {
+      name: currentProject.name,
+      useDevServer: recent.useDevServer,
+    });
+
+    // Hide BrowserView before starting (will be restored in startProject)
+    if (browserView && mainWindow) {
+      browserView.setBounds({ x: -9999, y: -9999, width: 1, height: 1 });
+    }
+
+    // Start with the remembered server preference
+    const result = await startProject(recent.useDevServer);
+
+    if (result.success) {
+      // Restore BrowserView visibility
+      updateBrowserViewBounds();
+    } else {
+      // Restore BrowserView visibility even on error (otherwise stuck offscreen)
+      updateBrowserViewBounds();
+      // Notify renderer to hide loading state
+      mainWindow?.webContents.send('project:loadingError', result.error || 'Unknown error');
+      // Show error to user
+      dialog.showErrorBox('Failed to Start Project', result.error || 'Unknown error');
+    }
   }
 }
 
@@ -267,6 +440,11 @@ Use the \`claude_lens/*\` MCP tools for browser automation:
 | \`claude_lens/go_forward\` | Browser forward button |
 | \`claude_lens/handle_dialog\` | Accept or dismiss alert/confirm dialogs |
 | \`claude_lens/evaluate\` | Execute custom JavaScript |
+
+### Responsive Testing
+| Tool | Purpose |
+|------|---------|
+| \`claude_lens/set_viewport\` | Change viewport size (presets: full, desktop, tablet, mobile, or custom width) |
 
 ## CSS Selectors
 
@@ -478,13 +656,20 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
     const port = currentProject.suggestedPort || 3000;
     let url: string;
 
-    // Stop any existing servers (in parallel since they're independent)
+    // Stop any existing servers and Claude (in parallel since they're independent)
     await Promise.all([
       devServerManager?.stop(),
       staticServer?.stop(),
+      ptyManager?.dispose(),
     ]);
     devServerManager = null;
     staticServer = null;
+
+    // Reset viewport to full width when starting a new project
+    console.log('[Viewport] Resetting viewport to full width, was:', browserViewportWidth);
+    browserViewportWidth = 0;
+    mainWindow?.webContents.send('browser:resetViewport');
+    console.log('[Viewport] Sent browser:resetViewport to renderer');
 
     if (useDevServer && currentProject.devCommand) {
       // Start dev server
@@ -526,6 +711,8 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
       const actualPort = serverManager.getActualPort() || port;
       url = `http://localhost:${actualPort}`;
       console.log(`Dev server started on port ${actualPort} (suggested: ${port})`);
+      // Small delay to let Vite finish initializing after port opens
+      await new Promise(resolve => setTimeout(resolve, 500));
     } else {
       // Use built-in static server
       staticServer = new StaticServer();
@@ -579,17 +766,17 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
     // Inject Claude Lens context into project before starting Claude
     await injectClaudeLensContext(currentProject.path);
 
-    // Only start Claude if not already running
-    // If already running, keep the existing session (user can manually restart if needed)
-    if (!ptyManager?.isRunning()) {
-      const newPtyManager = new PtyManager();
-      ptyManager = newPtyManager;
-      setupPtyForwarding();
-      await newPtyManager.start({ cwd: currentProject.path });
+    // Start Claude in the new project directory
+    const newPtyManager = new PtyManager();
+    ptyManager = newPtyManager;
+    setupPtyForwarding();
+    await newPtyManager.start({ cwd: currentProject.path });
 
-      // Notify renderer that Claude started automatically
-      mainWindow?.webContents.send('pty:autoStarted');
-    }
+    // Notify renderer that Claude started automatically
+    mainWindow?.webContents.send('pty:autoStarted');
+
+    // Add to recent projects with server preference
+    await addRecentProject(currentProject.path, currentProject.name, useDevServer);
 
     return { success: true, url };
   } catch (err) {
@@ -642,6 +829,50 @@ async function startProject(useDevServer: boolean): Promise<{ success: boolean; 
   }
 }
 
+/**
+ * Restart the currently running server (dev or static)
+ * Used by both the UI button and MCP tool
+ */
+async function restartServer(): Promise<{ success: boolean; error?: string }> {
+  if (!currentProject) {
+    return { success: false, error: 'No project loaded' };
+  }
+
+  // Determine which mode was running
+  const wasDevServer = devServerManager !== null;
+  const wasStaticServer = staticServer !== null;
+
+  if (!wasDevServer && !wasStaticServer) {
+    return { success: false, error: 'No server running to restart' };
+  }
+
+  try {
+    console.log('[Server] Restarting server...');
+
+    // Stop current server
+    await Promise.all([
+      devServerManager?.stop(),
+      staticServer?.stop(),
+    ]);
+    devServerManager = null;
+    staticServer = null;
+
+    // Brief pause to ensure port is released
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Restart with same mode
+    const result = await startProject(wasDevServer);
+
+    if (result.success) {
+      console.log('[Server] Restart complete');
+    }
+
+    return result;
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -683,11 +914,12 @@ async function createWindow() {
   mainWindow.on('restore', () => setTimeout(() => updateBrowserViewBounds(), 100));
 }
 
-// Track browser panel width and console drawer height for bounds calculation
+// Track browser panel width, viewport width, and console drawer height for bounds calculation
 let browserPanelWidth = 0;
+let browserViewportWidth = 0; // The constrained viewport width (0 = full panel width)
 let consoleDrawerHeight = 0;
 
-function updateBrowserViewBounds(panelWidth?: number, drawerHeight?: number) {
+function updateBrowserViewBounds(viewportWidth?: number, drawerHeight?: number, actualPanelWidth?: number) {
   if (!mainWindow || !browserView) return;
 
   const bounds = mainWindow.getBounds();
@@ -702,7 +934,11 @@ function updateBrowserViewBounds(panelWidth?: number, drawerHeight?: number) {
   const availableWidth = bounds.width - contextPanelWidth - resizerWidth;
   // Browser panel gets ~50% of remaining space (equal with claude panel)
   const defaultWidth = Math.floor(availableWidth * 0.5);
-  const width = panelWidth || browserPanelWidth || defaultWidth;
+
+  // actualPanelWidth = the full panel width from renderer
+  // viewportWidth = the constrained viewport width (for responsive testing)
+  const panelWidth = actualPanelWidth || browserPanelWidth || defaultWidth;
+  const width = viewportWidth || panelWidth;
 
   // Subtract console drawer height if open
   const effectiveDrawerHeight = drawerHeight !== undefined ? drawerHeight : consoleDrawerHeight;
@@ -713,24 +949,31 @@ function updateBrowserViewBounds(panelWidth?: number, drawerHeight?: number) {
     return;
   }
 
-  browserPanelWidth = width;
+  browserPanelWidth = panelWidth;
+  browserViewportWidth = viewportWidth || 0;
   if (drawerHeight !== undefined) {
     consoleDrawerHeight = drawerHeight;
   }
 
-  browserView.setBounds({
-    x: 0,
+  // Calculate x offset to center the browser when viewport is constrained
+  const xOffset = width < panelWidth ? Math.floor((panelWidth - width) / 2) : 0;
+
+  const newBounds = {
+    x: xOffset,
     y: headerHeight + panelHeaderHeight,
     width: Math.round(width),
     height: Math.round(height),
-  });
+  };
+  console.log('[Viewport] setBounds:', newBounds, 'browserViewportWidth:', browserViewportWidth, 'input viewportWidth:', viewportWidth);
+  browserView.setBounds(newBounds);
 }
 
 // IPC handler to update browser panel width from renderer
-ipcMain.handle('browser:updateBounds', async (_event, width: number, drawerHeight: number) => {
-  browserPanelWidth = width;
+// panelWidth is the actual panel width, width is the constrained viewport width
+ipcMain.handle('browser:updateBounds', async (_event, width: number, drawerHeight: number, panelWidth?: number) => {
+  browserPanelWidth = panelWidth || width;
   consoleDrawerHeight = drawerHeight;
-  updateBrowserViewBounds(width, drawerHeight);
+  updateBrowserViewBounds(width, drawerHeight, panelWidth);
 });
 
 // IPC handler to temporarily hide/show BrowserView (for modals that need to appear above it)
@@ -739,8 +982,8 @@ ipcMain.handle('browser:setVisible', async (_event, visible: boolean) => {
   if (!browserView || !mainWindow) return;
 
   if (visible) {
-    // Restore bounds
-    updateBrowserViewBounds(browserPanelWidth, consoleDrawerHeight);
+    // Restore bounds with viewport constraint for centering
+    updateBrowserViewBounds(browserViewportWidth || undefined, consoleDrawerHeight, browserPanelWidth);
   } else {
     // Move off-screen (setting bounds to 0,0,0,0 can cause issues)
     browserView.setBounds({ x: -9999, y: -9999, width: 1, height: 1 });
@@ -749,241 +992,28 @@ ipcMain.handle('browser:setVisible', async (_event, visible: boolean) => {
 
 // Inject unified inspect system - supports both Ctrl+hover and button toggle
 // Ctrl+hover/click always works; Inspect button makes it persistent without Ctrl
+// The inspect system JS is loaded from ./inject/inspect-system.js
+let inspectSystemScript: string | null = null;
+
+async function loadInspectSystemScript(): Promise<string> {
+  if (inspectSystemScript) return inspectSystemScript;
+
+  const scriptPath = path.join(__dirname, 'inject', 'inspect-system.js');
+  try {
+    inspectSystemScript = await fsPromises.readFile(scriptPath, 'utf-8');
+    return inspectSystemScript;
+  } catch (error) {
+    console.error('[InspectSystem] Failed to load inspect-system.js from:', scriptPath, error);
+    // Return minimal fallback script that prevents crash
+    return '(function() { console.warn("Claude Lens inspect system not available"); })()';
+  }
+}
+
 async function injectInspectSystem() {
   if (!browserView) return;
 
-  await browserView.webContents.executeJavaScript(`
-    (function() {
-      // Remove existing tracking if any
-      if (window.__claudeLensCleanup) {
-        window.__claudeLensCleanup();
-      }
-
-      // State
-      window.__claudeLensInspectMode = false; // Button toggle state
-
-      // Create tooltip element
-      let tooltip = document.getElementById('claude-lens-tooltip');
-      if (!tooltip) {
-        tooltip = document.createElement('div');
-        tooltip.id = 'claude-lens-tooltip';
-        tooltip.style.cssText = 'position:fixed;padding:4px 8px;background:#1e1e1e;color:#3794ff;font-family:monospace;font-size:12px;border-radius:4px;pointer-events:none;z-index:999999;display:none;box-shadow:0 2px 8px rgba(0,0,0,0.3);border:1px solid #3c3c3c;white-space:nowrap;';
-        document.body.appendChild(tooltip);
-      }
-
-      // Create highlight element
-      let highlight = document.getElementById('claude-lens-hover-highlight');
-      if (!highlight) {
-        highlight = document.createElement('div');
-        highlight.id = 'claude-lens-hover-highlight';
-        highlight.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;border:2px solid #3794ff;background:rgba(55,148,255,0.1);display:none;';
-        document.body.appendChild(highlight);
-      }
-
-      // Build selector string for display
-      function getSelectorDisplay(element) {
-        let selector = element.tagName.toLowerCase();
-        if (element.id) selector += '#' + element.id;
-        if (element.className && typeof element.className === 'string') {
-          const classes = element.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'));
-          if (classes.length) selector += '.' + classes.slice(0, 3).join('.');
-          if (classes.length > 3) selector += '...';
-        }
-        return selector;
-      }
-
-      function getFullSelector(element) {
-        function getSelector(el) {
-          if (el.id) return '#' + el.id;
-          let selector = el.tagName.toLowerCase();
-          if (el.className && typeof el.className === 'string') {
-            const classes = el.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'));
-            if (classes.length) selector += '.' + classes.join('.');
-          }
-          const parent = el.parentElement;
-          if (parent) {
-            const siblings = Array.from(parent.children).filter(c => c.tagName === el.tagName);
-            if (siblings.length > 1) {
-              const index = siblings.indexOf(el) + 1;
-              selector += ':nth-child(' + index + ')';
-            }
-          }
-          return selector;
-        }
-        const parts = [];
-        let current = element;
-        while (current && current !== document.body) {
-          parts.unshift(getSelector(current));
-          if (current.id) break;
-          current = current.parentElement;
-        }
-        return parts.join(' > ');
-      }
-
-      let currentElement = null;
-      let ctrlPressed = false;
-
-      // Expose for blur handler to reset
-      window.__claudeLensResetCtrl = true;
-      Object.defineProperty(window, '__claudeLensCtrlPressed', {
-        get: () => ctrlPressed,
-        set: (v) => { ctrlPressed = v; },
-        configurable: true
-      });
-
-      // Track Ctrl key state
-      function handleKeyDown(e) {
-        if (e.key === 'Control' && !ctrlPressed) {
-          ctrlPressed = true;
-          document.body.style.cursor = 'crosshair';
-        }
-      }
-
-      function handleKeyUp(e) {
-        if (e.key === 'Control') {
-          ctrlPressed = false;
-          if (!window.__claudeLensInspectMode) {
-            document.body.style.cursor = '';
-            tooltip.style.display = 'none';
-            highlight.style.display = 'none';
-          }
-        }
-      }
-
-      // Should we show inspect UI?
-      function isInspectActive() {
-        return ctrlPressed || window.__claudeLensInspectMode;
-      }
-
-      function handleMouseMove(e) {
-        if (!isInspectActive()) {
-          tooltip.style.display = 'none';
-          highlight.style.display = 'none';
-          return;
-        }
-
-        const el = document.elementFromPoint(e.clientX, e.clientY);
-        if (!el || el === tooltip || el === highlight || el.id?.startsWith('claude-lens')) {
-          return;
-        }
-
-        if (el !== currentElement) {
-          currentElement = el;
-          window.__claudeLensLastElement = el;
-
-          // Update tooltip
-          const selectorText = getSelectorDisplay(el);
-          tooltip.textContent = '<' + selectorText + '>';
-          tooltip.style.display = 'block';
-
-          // Position tooltip near cursor
-          const tooltipRect = tooltip.getBoundingClientRect();
-          let left = e.clientX + 15;
-          let top = e.clientY + 15;
-          if (left + tooltipRect.width > window.innerWidth) {
-            left = e.clientX - tooltipRect.width - 10;
-          }
-          if (top + tooltipRect.height > window.innerHeight) {
-            top = e.clientY - tooltipRect.height - 10;
-          }
-          tooltip.style.left = left + 'px';
-          tooltip.style.top = top + 'px';
-
-          // Update highlight
-          const rect = el.getBoundingClientRect();
-          highlight.style.left = rect.left + 'px';
-          highlight.style.top = rect.top + 'px';
-          highlight.style.width = rect.width + 'px';
-          highlight.style.height = rect.height + 'px';
-          highlight.style.display = 'block';
-        }
-      }
-
-      function handleMouseLeave() {
-        tooltip.style.display = 'none';
-        highlight.style.display = 'none';
-        currentElement = null;
-      }
-
-      function handleClick(e) {
-        // Only capture if Ctrl is held OR inspect mode is on
-        if (!isInspectActive()) return;
-
-        const el = e.target;
-        if (el.id?.startsWith('claude-lens')) return;
-
-        // In inspect mode (button), block the click; with Ctrl, let it through
-        if (window.__claudeLensInspectMode) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-        // With Ctrl only, we still capture but DON'T block - allows dropdowns to open
-
-        // Get element info
-        const attributes = {};
-        for (const attr of el.attributes) {
-          if (attr.name !== 'class' && attr.name !== 'id') {
-            attributes[attr.name] = attr.value;
-          }
-        }
-
-        const computed = window.getComputedStyle(el);
-        const styles = {
-          color: computed.color,
-          backgroundColor: computed.backgroundColor,
-          fontSize: computed.fontSize,
-          fontFamily: computed.fontFamily,
-          display: computed.display,
-          position: computed.position,
-        };
-
-        const rect = el.getBoundingClientRect();
-
-        const elementInfo = {
-          tagName: el.tagName.toLowerCase(),
-          id: el.id || undefined,
-          classes: el.className && typeof el.className === 'string'
-            ? el.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('claude-lens'))
-            : [],
-          selector: getFullSelector(el),
-          text: el.textContent?.slice(0, 100) || '',
-          attributes: attributes,
-          styles: styles,
-          position: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
-          interactionResult: 'Element captured',
-        };
-
-        // Show capture highlight (orange)
-        const captureHighlight = document.createElement('div');
-        captureHighlight.className = 'claude-lens-capture-highlight';
-        captureHighlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #f59e0b;background:rgba(245,158,11,0.15);pointer-events:none;z-index:999999;transition:opacity 0.5s;';
-        document.body.appendChild(captureHighlight);
-        setTimeout(() => { captureHighlight.style.opacity = '0'; }, 1500);
-        setTimeout(() => { captureHighlight.remove(); }, 2000);
-
-        // Send to Electron
-        console.log('CLAUDE_LENS_ELEMENT:' + JSON.stringify(elementInfo));
-      }
-
-      document.addEventListener('keydown', handleKeyDown, true);
-      document.addEventListener('keyup', handleKeyUp, true);
-      document.addEventListener('mousemove', handleMouseMove, true);
-      document.addEventListener('mouseleave', handleMouseLeave);
-      document.addEventListener('click', handleClick, true);
-
-      // Cleanup function
-      window.__claudeLensCleanup = function() {
-        document.removeEventListener('keydown', handleKeyDown, true);
-        document.removeEventListener('keyup', handleKeyUp, true);
-        document.removeEventListener('mousemove', handleMouseMove, true);
-        document.removeEventListener('mouseleave', handleMouseLeave);
-        document.removeEventListener('click', handleClick, true);
-        tooltip?.remove();
-        highlight?.remove();
-        document.body.style.cursor = '';
-      };
-    })()
-  `);
+  const script = await loadInspectSystemScript();
+  await browserView.webContents.executeJavaScript(script);
 }
 
 // IPC Handlers
@@ -1022,121 +1052,6 @@ ipcMain.handle('pty:resize', async (_event, cols: number, rows: number) => {
   if (!ptyManager) return;
   ptyManager.resize(cols, rows);
 });
-
-/**
- * Inject Ctrl+Click element capture listener into the browser.
- * This allows users to quickly capture elements without toggling Inspect Mode.
- * @deprecated Superseded by injectInspectSystem - kept for reference
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function _injectCtrlClickCapture() {
-  if (!browserView) return;
-
-  try {
-    await browserView.webContents.executeJavaScript(`
-      (function() {
-        // Skip if already injected
-        if (window.__claudeLensCtrlClickHandler) return;
-
-        window.__claudeLensCtrlClickHandler = function(e) {
-          // Only capture on Ctrl+Click (or Cmd+Click on Mac)
-          if (!e.ctrlKey && !e.metaKey) return;
-
-          e.preventDefault();
-          e.stopPropagation();
-
-          const el = e.target;
-
-          // Build selector
-          function getSelector(element) {
-            if (element.id) return '#' + element.id;
-            let selector = element.tagName.toLowerCase();
-            if (element.className && typeof element.className === 'string') {
-              const classes = element.className.trim().split(/\\s+/).filter(c => c);
-              if (classes.length) selector += '.' + classes.join('.');
-            }
-            const parent = element.parentElement;
-            if (parent) {
-              const siblings = Array.from(parent.children).filter(c => c.tagName === element.tagName);
-              if (siblings.length > 1) {
-                const index = siblings.indexOf(element) + 1;
-                selector += ':nth-child(' + index + ')';
-              }
-            }
-            return selector;
-          }
-
-          function getFullSelector(element) {
-            const parts = [];
-            let current = element;
-            while (current && current !== document.body) {
-              parts.unshift(getSelector(current));
-              if (current.id) break;
-              current = current.parentElement;
-            }
-            return parts.join(' > ');
-          }
-
-          // Get attributes
-          const attributes = {};
-          for (const attr of el.attributes) {
-            if (attr.name !== 'class' && attr.name !== 'id') {
-              attributes[attr.name] = attr.value;
-            }
-          }
-
-          // Get computed styles
-          const computed = window.getComputedStyle(el);
-          const styles = {
-            color: computed.color,
-            backgroundColor: computed.backgroundColor,
-            fontSize: computed.fontSize,
-            fontFamily: computed.fontFamily,
-            display: computed.display,
-            position: computed.position,
-          };
-
-          // Get position
-          const rect = el.getBoundingClientRect();
-          const position = {
-            x: rect.left,
-            y: rect.top,
-            width: rect.width,
-            height: rect.height,
-          };
-
-          const elementInfo = {
-            tagName: el.tagName.toLowerCase(),
-            id: el.id || undefined,
-            classes: el.className && typeof el.className === 'string'
-              ? el.className.trim().split(/\\s+/).filter(c => c)
-              : [],
-            selector: getFullSelector(el),
-            text: el.textContent?.slice(0, 100) || '',
-            attributes: attributes,
-            styles: styles,
-            position: position,
-          };
-
-          // Highlight briefly
-          document.querySelectorAll('.claude-lens-highlight').forEach(h => h.remove());
-          const highlight = document.createElement('div');
-          highlight.className = 'claude-lens-highlight';
-          highlight.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;border:2px solid #10b981;background:rgba(16,185,129,0.1);pointer-events:none;z-index:999999;';
-          document.body.appendChild(highlight);
-          setTimeout(() => { highlight.style.opacity = '0'; setTimeout(() => highlight.remove(), 300); }, 2000);
-
-          // Send back to Electron
-          console.log('CLAUDE_LENS_CTRL_ELEMENT:' + JSON.stringify(elementInfo));
-        };
-
-        document.addEventListener('click', window.__claudeLensCtrlClickHandler, true);
-      })()
-    `);
-  } catch (error) {
-    console.debug('[BrowserView] Inject script error:', error);
-  }
-}
 
 // Browser (embedded BrowserView) handlers
 ipcMain.handle('browser:navigate', async (_event, url: string) => {
@@ -1607,6 +1522,8 @@ function setupBrowserViewMessaging() {
   browserView.webContents.on('did-finish-load', async () => {
     await injectInspectSystem();
     console.log('[BrowserView] Re-injected inspect system after page load');
+    // Notify renderer that page finished loading (for hiding loading overlay)
+    mainWindow?.webContents.send('browser:loaded');
   });
 
   // Reset Ctrl state when BrowserView loses focus (prevents stuck Ctrl)
@@ -1718,6 +1635,37 @@ ipcMain.handle('project:stopServer', async () => {
   }
 });
 
+ipcMain.handle('project:restartServer', async () => {
+  return restartServer();
+});
+
+ipcMain.handle('project:getRecent', () => {
+  return recentProjects.map(p => ({
+    name: p.name,
+    path: p.path,
+    useDevServer: p.useDevServer,
+    lastOpened: p.lastOpened
+  }));
+});
+
+ipcMain.handle('project:openRecent', async (_event, projectPath: string) => {
+  const recent = recentProjects.find(p => p.path === projectPath);
+  if (!recent) return { success: false, error: 'Project not found in recent list' };
+
+  try {
+    await openRecentProject(recent);
+    // Verify the project actually opened
+    if (!currentProject) {
+      return { success: false, error: 'Project failed to load' };
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('[project:openRecent] Failed to open project:', error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMsg };
+  }
+});
+
 // Send element to Claude - the key seamless integration!
 ipcMain.handle('send-to-claude', async (_event, prompt: string, elementContext: string) => {
   if (!ptyManager) return { success: false, error: 'Claude not running' };
@@ -1746,6 +1694,7 @@ function setupPtyForwarding() {
 
 // App lifecycle
 app.whenReady().then(async () => {
+  await loadRecentProjects();
   createMenu();
   await createWindow();
   setupPtyForwarding();
@@ -1776,7 +1725,13 @@ app.whenReady().then(async () => {
     bridgeServer.setHandler(createPlaywrightBridgeHandler(
       () => browserView,
       () => consoleBuffer.toArray(),
-      () => playwrightAdapter
+      () => playwrightAdapter,
+      // Viewport callback - sends width to renderer
+      (width: number) => {
+        mainWindow?.webContents.send('browser:setViewport', width);
+      },
+      // Restart server callback - for MCP tool
+      restartServer
     ));
     await bridgeServer.start();
     console.log('Bridge server started on port 9333 (Playwright-powered)');

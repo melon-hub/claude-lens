@@ -129,6 +129,14 @@ const DialogHandlerSchema = z.object({
   action: z.enum(['accept', 'dismiss']).describe('How to handle dialogs (alerts, confirms, prompts)'),
 });
 
+const SetViewportSchema = z.object({
+  preset: z.enum(['full', 'desktop', 'tablet-landscape', 'tablet', 'mobile-large', 'mobile', 'custom'])
+    .optional()
+    .describe('Viewport preset (or "custom" with width)'),
+  width: z.number().min(320).max(3840).optional()
+    .describe('Custom width in pixels (320-3840). Only used when preset is "custom" or omitted.'),
+});
+
 // Create server
 const server = new Server(
   {
@@ -517,6 +525,34 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['action'],
+        },
+      },
+      {
+        name: 'claude_lens/set_viewport',
+        description:
+          'Change browser viewport size for responsive testing. Use presets for common sizes or custom width for specific breakpoints.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            preset: {
+              type: 'string',
+              enum: ['full', 'desktop', 'tablet-landscape', 'tablet', 'mobile-large', 'mobile', 'custom'],
+              description: 'Viewport preset: full (no constraint), desktop (1280px), tablet-landscape (1024px), tablet (768px), mobile-large (425px), mobile (375px), or custom',
+            },
+            width: {
+              type: 'number',
+              description: 'Custom viewport width in pixels (320-3840). Use with preset="custom" or alone.',
+            },
+          },
+        },
+      },
+      {
+        name: 'claude_lens/restart_server',
+        description:
+          'Restart the currently running dev server or static server. Useful after installing new dependencies, changing config files, or when hot reload is not working.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
         },
       },
     ],
@@ -992,6 +1028,77 @@ ${Object.entries(element.attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n') 
             },
           ],
         };
+      }
+
+      case 'claude_lens/set_viewport': {
+        const { preset, width } = SetViewportSchema.parse(args);
+        const presetWidths: Record<string, number> = {
+          'full': 0,
+          'desktop': 1280,
+          'tablet-landscape': 1024,
+          'tablet': 768,
+          'mobile-large': 425,
+          'mobile': 375,
+        };
+
+        // Preset labels for display
+        const presetLabels: Record<string, string> = {
+          'full': 'Full Width (no constraint)',
+          'desktop': '1280px (Desktop)',
+          'tablet-landscape': '1024px (Tablet Landscape)',
+          'tablet': '768px (Tablet)',
+          'mobile-large': '425px (Mobile L)',
+          'mobile': '375px (Mobile)',
+        };
+
+        // Determine actual width: custom width takes precedence, then preset
+        let actualWidth: number;
+        let description: string;
+
+        if (width !== undefined) {
+          actualWidth = width;
+          description = `${width}px (Custom)`;
+        } else if (preset && preset !== 'custom' && preset in presetWidths) {
+          actualWidth = presetWidths[preset] ?? 0;
+          description = presetLabels[preset] ?? 'Unknown';
+        } else {
+          // No valid input - default to full width
+          actualWidth = 0;
+          description = 'Full Width (no constraint)';
+        }
+
+        console.error(`[claude_lens/set_viewport] Setting viewport to: ${description}`);
+        await bridge.setViewport(actualWidth);
+        console.error(`[claude_lens/set_viewport] Done`);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Viewport changed to ${description}`,
+            },
+          ],
+        };
+      }
+
+      case 'claude_lens/restart_server': {
+        console.error('[claude_lens/restart_server] Restarting server...');
+        const result = await bridge.restartServer();
+        console.error(`[claude_lens/restart_server] Done: ${result.success ? 'success' : result.error}`);
+        if (result.success) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Server restarted successfully. The page will reload automatically when the server is ready.',
+              },
+            ],
+          };
+        } else {
+          return {
+            content: [{ type: 'text', text: `Failed to restart server: ${result.error}` }],
+            isError: true,
+          };
+        }
       }
 
       default:

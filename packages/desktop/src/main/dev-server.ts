@@ -61,16 +61,31 @@ export class DevServerManager {
     }
 
     const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
+
+    // Detect WSL by checking if project path is on Windows filesystem
+    const isWSL = projectPath.startsWith('/mnt/');
+
+    // Build environment with WSL-specific fixes
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      FORCE_COLOR: '1',
+      TERM: 'xterm-256color',
+    };
+
+    // Enable polling for file watchers in WSL
+    // inotify doesn't work for /mnt/* paths - chokidar needs to poll
+    if (isWSL) {
+      console.log('[DevServer] WSL detected - enabling chokidar polling for file watching');
+      env.CHOKIDAR_USEPOLLING = 'true';
+      env.CHOKIDAR_INTERVAL = '300'; // Poll every 300ms for responsiveness
+    }
+
     const ptyProcess = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
       rows: 30,
       cwd: projectPath,
-      env: {
-        ...process.env,
-        FORCE_COLOR: '1',
-        TERM: 'xterm-256color',
-      },
+      env,
     });
 
     this.server = {
@@ -153,6 +168,10 @@ export class DevServerManager {
    * Must be careful not to match timestamps or other numbers
    */
   private detectPortFromOutput(output: string): number | null {
+    // Strip ANSI escape codes before matching (Vite outputs colored text)
+    // eslint-disable-next-line no-control-regex
+    const cleanOutput = output.replace(/\x1b\[[0-9;]*m/g, '');
+
     // Specific patterns for dev server URL announcements
     // These must be URL-like to avoid matching timestamps/error codes
     const patterns = [
@@ -165,7 +184,7 @@ export class DevServerManager {
     ];
 
     for (const pattern of patterns) {
-      const match = output.match(pattern);
+      const match = cleanOutput.match(pattern);
       if (match && match[1]) {
         const port = parseInt(match[1], 10);
         // Sanity check: port should be in common dev server range

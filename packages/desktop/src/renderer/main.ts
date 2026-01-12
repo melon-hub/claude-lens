@@ -13,6 +13,28 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { SearchAddon } from '@xterm/addon-search';
 import { CircularBuffer } from '@claude-lens/core';
 import 'xterm/css/xterm.css';
+import {
+  formatElements,
+  formatSequence,
+  formatConsole,
+  type ContextMode,
+} from './context-formatter';
+import {
+  MCP_TOOL_ICONS,
+  CHAR_SUBSTITUTIONS,
+  MCP_INDICATORS,
+} from './constants/mcp-tool-icons';
+
+/**
+ * Simple debounce utility - delays function execution until after wait ms of inactivity
+ */
+function debounce<T extends (...args: unknown[]) => unknown>(fn: T, wait: number): (...args: Parameters<T>) => void {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  return (...args: Parameters<T>) => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn(...args), wait);
+  };
+}
 
 /**
  * Wait for fonts to load before opening terminal
@@ -81,94 +103,116 @@ function runFontDiagnostics(): void {
   }
 }
 
+// Type-safe getElementById helper
+const getEl = <T extends HTMLElement>(id: string): T =>
+  document.getElementById(id) as T;
+
 // Elements - Header
-const urlInput = document.getElementById('urlInput') as HTMLInputElement;
-const goBtn = document.getElementById('goBtn') as HTMLButtonElement;
-const refreshBtn = document.getElementById('refreshBtn') as HTMLButtonElement;
-const statusEl = document.getElementById('status') as HTMLSpanElement;
-const viewportSelect = document.getElementById('viewportSelect') as HTMLSelectElement;
+const urlInput = getEl<HTMLInputElement>('urlInput');
+const goBtn = getEl<HTMLButtonElement>('goBtn');
+const refreshBtn = getEl<HTMLButtonElement>('refreshBtn');
+refreshBtn.disabled = true; // Disabled until a page is loaded
+const restartServerBtn = getEl<HTMLButtonElement>('restartServerBtn');
+const statusEl = getEl<HTMLSpanElement>('status');
+const viewportSelect = getEl<HTMLSelectElement>('viewportSelect');
+const projectDropdown = getEl<HTMLSelectElement>('projectDropdown');
 
 // Elements - Panels
-const placeholder = document.getElementById('placeholder') as HTMLDivElement;
-const terminalEl = document.getElementById('terminal') as HTMLDivElement;
-const startClaudeBtn = document.getElementById('startClaudeBtn') as HTMLButtonElement;
-const inspectBtn = document.getElementById('inspectBtn') as HTMLButtonElement;
-const browserHelpText = document.getElementById('browserHelpText') as HTMLSpanElement;
+const placeholder = getEl<HTMLDivElement>('placeholder');
+const loadingOverlay = getEl<HTMLDivElement>('loadingOverlay');
+const terminalEl = getEl<HTMLDivElement>('terminal');
+const startClaudeBtn = getEl<HTMLButtonElement>('startClaudeBtn');
+const inspectBtn = getEl<HTMLButtonElement>('inspectBtn');
+const browserHelpText = getEl<HTMLSpanElement>('browserHelpText');
 
 // Elements - Context Panel
-const contextEmpty = document.getElementById('contextEmpty') as HTMLDivElement;
-const descriptionInfo = document.getElementById('descriptionInfo') as HTMLDivElement;
-const elementDescription = document.getElementById('elementDescription') as HTMLSpanElement;
-const elementInfo = document.getElementById('elementInfo') as HTMLDivElement;
-const hierarchyInfo = document.getElementById('hierarchyInfo') as HTMLDivElement;
-const hierarchyList = document.getElementById('hierarchyList') as HTMLDivElement;
-const pathInfo = document.getElementById('pathInfo') as HTMLDivElement;
-const attributesInfo = document.getElementById('attributesInfo') as HTMLDivElement;
-const stylesInfo = document.getElementById('stylesInfo') as HTMLDivElement;
-const positionInfo = document.getElementById('positionInfo') as HTMLDivElement;
-const textInfo = document.getElementById('textInfo') as HTMLDivElement;
+const contextEmpty = getEl<HTMLDivElement>('contextEmpty');
+const descriptionInfo = getEl<HTMLDivElement>('descriptionInfo');
+const elementDescription = getEl<HTMLSpanElement>('elementDescription');
+const elementInfo = getEl<HTMLDivElement>('elementInfo');
+const hierarchyInfo = getEl<HTMLDivElement>('hierarchyInfo');
+const hierarchyList = getEl<HTMLDivElement>('hierarchyList');
+const pathInfo = getEl<HTMLDivElement>('pathInfo');
+const attributesInfo = getEl<HTMLDivElement>('attributesInfo');
+const stylesInfo = getEl<HTMLDivElement>('stylesInfo');
+const positionInfo = getEl<HTMLDivElement>('positionInfo');
+const textInfo = getEl<HTMLDivElement>('textInfo');
 
 // Elements - Console Drawer (browser panel)
-const consoleToggleBtn = document.getElementById('consoleToggleBtn') as HTMLButtonElement;
-const consoleDrawer = document.getElementById('consoleDrawer') as HTMLDivElement;
-const consoleDrawerMessages = document.getElementById('consoleDrawerMessages') as HTMLDivElement;
-const consoleDrawerCount = document.getElementById('consoleDrawerCount') as HTMLSpanElement;
-const consoleClearBtn = document.getElementById('consoleClearBtn') as HTMLButtonElement;
-const consoleSendBtn = document.getElementById('consoleSendBtn') as HTMLButtonElement;
+const consoleToggleBtn = getEl<HTMLButtonElement>('consoleToggleBtn');
+const consoleDrawer = getEl<HTMLDivElement>('consoleDrawer');
+const consoleDrawerMessages = getEl<HTMLDivElement>('consoleDrawerMessages');
+const consoleDrawerCount = getEl<HTMLSpanElement>('consoleDrawerCount');
+const consoleClearBtn = getEl<HTMLButtonElement>('consoleClearBtn');
+const consoleSendBtn = getEl<HTMLButtonElement>('consoleSendBtn');
 
-const elementTag = document.getElementById('elementTag') as HTMLElement;
-const elementPath = document.getElementById('elementPath') as HTMLElement;
-const attributesList = document.getElementById('attributesList') as HTMLDivElement;
-const stylesList = document.getElementById('stylesList') as HTMLDivElement;
-const positionData = document.getElementById('positionData') as HTMLDivElement;
-const innerText = document.getElementById('innerText') as HTMLSpanElement;
+const elementTag = getEl<HTMLElement>('elementTag');
+const elementPath = getEl<HTMLElement>('elementPath');
+const attributesList = getEl<HTMLDivElement>('attributesList');
+const stylesList = getEl<HTMLDivElement>('stylesList');
+const positionData = getEl<HTMLDivElement>('positionData');
+const innerText = getEl<HTMLSpanElement>('innerText');
 
 // Elements - Component Info
-const componentInfo = document.getElementById('componentInfo') as HTMLDivElement;
-const frameworkBadge = document.getElementById('frameworkBadge') as HTMLSpanElement;
-const componentList = document.getElementById('componentList') as HTMLDivElement;
+const componentInfo = getEl<HTMLDivElement>('componentInfo');
+const frameworkBadge = getEl<HTMLSpanElement>('frameworkBadge');
+const componentList = getEl<HTMLDivElement>('componentList');
 
 // Elements - Chips and Prompt
-const elementChips = document.getElementById('elementChips') as HTMLDivElement;
-const promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
-const sendPromptBtn = document.getElementById('sendPromptBtn') as HTMLButtonElement;
+const elementChips = getEl<HTMLDivElement>('elementChips');
+const promptInput = getEl<HTMLTextAreaElement>('promptInput');
+const sendPromptBtn = getEl<HTMLButtonElement>('sendPromptBtn');
+const contextModeSelect = getEl<HTMLSelectElement>('contextModeSelect');
 
 // Elements - Inspect Sequence (Phase 2)
-const inspectSequenceInfo = document.getElementById('inspectSequenceInfo') as HTMLDivElement;
-const sequenceCount = document.getElementById('sequenceCount') as HTMLSpanElement;
-const inspectSequenceList = document.getElementById('inspectSequenceList') as HTMLDivElement;
-const clearSequenceBtn = document.getElementById('clearSequenceBtn') as HTMLButtonElement;
-const sendSequenceBtn = document.getElementById('sendSequenceBtn') as HTMLButtonElement;
+const inspectSequenceInfo = getEl<HTMLDivElement>('inspectSequenceInfo');
+const sequenceCount = getEl<HTMLSpanElement>('sequenceCount');
+const inspectSequenceList = getEl<HTMLDivElement>('inspectSequenceList');
+const clearSequenceBtn = getEl<HTMLButtonElement>('clearSequenceBtn');
+const sendSequenceBtn = getEl<HTMLButtonElement>('sendSequenceBtn');
 
 // Elements - Form State & Freeze Hover (Phase 3)
-const formStateInfo = document.getElementById('formStateInfo') as HTMLDivElement;
-const formStateContent = document.getElementById('formStateContent') as HTMLDivElement;
-const validationBadge = document.getElementById('validationBadge') as HTMLSpanElement;
-const freezeHoverBtn = document.getElementById('freezeHoverBtn') as HTMLButtonElement;
+const formStateInfo = getEl<HTMLDivElement>('formStateInfo');
+const formStateContent = getEl<HTMLDivElement>('formStateContent');
+const validationBadge = getEl<HTMLSpanElement>('validationBadge');
+const freezeHoverBtn = getEl<HTMLButtonElement>('freezeHoverBtn');
 
 // Elements - Phase 4: Edge Cases
-const overlayInfo = document.getElementById('overlayInfo') as HTMLDivElement;
-const overlayContent = document.getElementById('overlayContent') as HTMLDivElement;
-const overlayTypeBadge = document.getElementById('overlayTypeBadge') as HTMLSpanElement;
-const stackingInfo = document.getElementById('stackingInfo') as HTMLDivElement;
-const stackingContent = document.getElementById('stackingContent') as HTMLDivElement;
-const zIndexBadge = document.getElementById('zIndexBadge') as HTMLSpanElement;
-const scrollInfo = document.getElementById('scrollInfo') as HTMLDivElement;
-const scrollContent = document.getElementById('scrollContent') as HTMLDivElement;
-const visibilityBadge = document.getElementById('visibilityBadge') as HTMLSpanElement;
-const iframeInfo = document.getElementById('iframeInfo') as HTMLDivElement;
-const iframeContent = document.getElementById('iframeContent') as HTMLDivElement;
-const shadowDOMInfo = document.getElementById('shadowDOMInfo') as HTMLDivElement;
-const shadowDOMContent = document.getElementById('shadowDOMContent') as HTMLDivElement;
-const toastCapturesInfo = document.getElementById('toastCapturesInfo') as HTMLDivElement;
-const toastCapturesList = document.getElementById('toastCapturesList') as HTMLDivElement;
-const toastCount = document.getElementById('toastCount') as HTMLSpanElement;
-const clearToastsBtn = document.getElementById('clearToastsBtn') as HTMLButtonElement;
-const sendToastsBtn = document.getElementById('sendToastsBtn') as HTMLButtonElement;
+const overlayInfo = getEl<HTMLDivElement>('overlayInfo');
+const overlayContent = getEl<HTMLDivElement>('overlayContent');
+const overlayTypeBadge = getEl<HTMLSpanElement>('overlayTypeBadge');
+const stackingInfo = getEl<HTMLDivElement>('stackingInfo');
+const stackingContent = getEl<HTMLDivElement>('stackingContent');
+const zIndexBadge = getEl<HTMLSpanElement>('zIndexBadge');
+const scrollInfo = getEl<HTMLDivElement>('scrollInfo');
+const scrollContent = getEl<HTMLDivElement>('scrollContent');
+const visibilityBadge = getEl<HTMLSpanElement>('visibilityBadge');
+const iframeInfo = getEl<HTMLDivElement>('iframeInfo');
+const iframeContent = getEl<HTMLDivElement>('iframeContent');
+const shadowDOMInfo = getEl<HTMLDivElement>('shadowDOMInfo');
+const shadowDOMContent = getEl<HTMLDivElement>('shadowDOMContent');
+const toastCapturesInfo = getEl<HTMLDivElement>('toastCapturesInfo');
+const toastCapturesList = getEl<HTMLDivElement>('toastCapturesList');
+const toastCount = getEl<HTMLSpanElement>('toastCount');
+const clearToastsBtn = getEl<HTMLButtonElement>('clearToastsBtn');
+const sendToastsBtn = getEl<HTMLButtonElement>('sendToastsBtn');
 
 // Elements - Resizers
-const resizer1 = document.getElementById('resizer1') as HTMLDivElement;
-const resizer2 = document.getElementById('resizer2') as HTMLDivElement;
+const resizer1 = getEl<HTMLDivElement>('resizer1');
+const resizer2 = getEl<HTMLDivElement>('resizer2');
+
+// Elements - Copy Buttons
+const copySelectorBtn = getEl<HTMLButtonElement>('copySelectorBtn');
+const copyComponentBtn = getEl<HTMLButtonElement>('copyComponentBtn');
+
+// Elements - Thinking Indicator
+const thinkingIndicator = getEl<HTMLSpanElement>('thinkingIndicator');
+
+// Elements - Enhanced Status Bar
+const projectStatus = getEl<HTMLSpanElement>('projectStatus');
+const serverStatus = getEl<HTMLSpanElement>('serverStatus');
+const playwrightStatus = getEl<HTMLSpanElement>('playwrightStatus');
+const viewportStatus = getEl<HTMLSpanElement>('viewportStatus');
 
 // Terminal setup with optimized scrollback buffer
 // Font stack: Main font -> Symbols font for icons -> System fonts for standard Unicode symbols
@@ -206,6 +250,9 @@ let inspectMode = false;
 let selectedElements: ElementInfo[] = [];
 let consoleDrawerOpen = false;
 
+// Context mode: 'lean' (optimized for Claude efficiency) or 'detailed' (full info)
+let contextMode: ContextMode = 'lean';
+
 // Inspect sequence state (Phase 2: multi-click capture)
 let inspectSequence: CapturedInteraction[] = [];
 
@@ -215,11 +262,21 @@ let hoverFrozen = false;
 // Captured toasts state (Phase 4)
 let capturedToasts: ToastCapture[] = [];
 
+// Claude thinking state - shown when waiting for response
+let isThinking = false;
+let thinkingTimeout: ReturnType<typeof setTimeout> | null = null;
+
 // Console drawer height - 200px CSS + extra buffer for BrowserView bounds
 const DRAWER_HEIGHT = 235;
 
 // Viewport width constraint (0 = full width)
 let viewportWidth = 0;
+
+// Status bar state
+let currentProjectName = '';
+let currentServerPort = 0;
+let currentServerType: 'dev' | 'static' | null = null;
+let playwrightConnected = false;
 
 /**
  * Update browser bounds with viewport constraint
@@ -233,7 +290,27 @@ function updateBrowserBounds() {
   const panelWidth = browserPanel.offsetWidth;
   const effectiveWidth = viewportWidth > 0 ? Math.min(viewportWidth, panelWidth) : panelWidth;
 
-  window.claudeLens.browser.updateBounds(effectiveWidth, drawerHeight);
+  console.log('[Viewport] updateBrowserBounds:', { viewportWidth, panelWidth, effectiveWidth, drawerHeight });
+
+  // Pass both panelWidth and effectiveWidth so main can center the browser
+  window.claudeLens.browser.updateBounds(effectiveWidth, drawerHeight, panelWidth);
+}
+
+/**
+ * Set browser as loaded and update UI state
+ * Consolidates all the state changes needed when browser content is ready
+ */
+function setBrowserLoaded(url?: string) {
+  browserLoaded = true;
+  refreshBtn.disabled = false;
+  restartServerBtn.disabled = false;
+  placeholder.classList.add('hidden');
+  setStatus('Connected', true);
+  browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
+  if (url) {
+    urlInput.value = url;
+  }
+  updateBrowserBounds();
 }
 
 // Console message buffer (last 50 messages)
@@ -315,16 +392,17 @@ function showProjectModal(project: ProjectInfo) {
     devBtn.addEventListener('click', async () => {
       devBtn.disabled = true;
       devBtn.textContent = 'Starting...';
+      // Update status bar state
+      currentProjectName = project.name;
+      currentServerType = 'dev';
+      updateStatusBar();
       const result = await window.claudeLens.project.start({ useDevServer: true });
       modal.remove();
       // Restore BrowserView visibility
       window.claudeLens.browser.setVisible(true);
       if (result.success && result.url) {
-        urlInput.value = result.url;
-        browserLoaded = true;
-        placeholder.classList.add('hidden');
-        setStatus('Connected', true);
-        browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
+        console.log('[Viewport] Browser loaded, updating bounds');
+        setBrowserLoaded(result.url);
       } else {
         alert(`Failed to start dev server: ${result.error}`);
       }
@@ -333,21 +411,21 @@ function showProjectModal(project: ProjectInfo) {
   }
 
   const staticBtn = document.createElement('button');
-  staticBtn.className = project.devCommand ? 'btn' : 'btn btn-primary';
-  staticBtn.textContent = 'Start with Built-in Server';
+  staticBtn.className = project.devCommand ? 'btn btn-secondary' : 'btn btn-primary';
+  staticBtn.textContent = 'Use Built-in Server';
   staticBtn.addEventListener('click', async () => {
     staticBtn.disabled = true;
     staticBtn.textContent = 'Starting...';
+    // Update status bar state
+    currentProjectName = project.name;
+    currentServerType = 'static';
+    updateStatusBar();
     const result = await window.claudeLens.project.start({ useDevServer: false });
     modal.remove();
     // Restore BrowserView visibility
     window.claudeLens.browser.setVisible(true);
     if (result.success && result.url) {
-      urlInput.value = result.url;
-      browserLoaded = true;
-      placeholder.classList.add('hidden');
-      setStatus('Connected', true);
-      browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
+      setBrowserLoaded(result.url);
     } else {
       alert(`Failed to start server: ${result.error}`);
     }
@@ -355,7 +433,7 @@ function showProjectModal(project: ProjectInfo) {
   buttons.appendChild(staticBtn);
 
   const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'btn';
+  cancelBtn.className = 'btn btn-ghost';
   cancelBtn.textContent = 'Cancel';
   cancelBtn.addEventListener('click', () => {
     modal.remove();
@@ -399,85 +477,20 @@ async function init() {
     terminal.refresh(0, terminal.rows - 1);
   }, 500);
 
-
-  // MCP tool pattern detection with semantic icons (Nerd Font)
-  // Format: [pattern to match after indicator, replacement icon, description]
-  // Some patterns also transform the text for better UX
-  const mcpToolIcons: Array<{ pattern: RegExp; icon: string; name: string; transform?: string }> = [
-    // Screenshot/Image tools
-    { pattern: /Screenshot captured/i, icon: '\uF030', name: 'camera' },        //
-    { pattern: /\[Image\]/i, icon: '\uF03E', name: 'image', transform: 'Attached to context' },  // Transform [Image] to clearer text
-    { pattern: /Taking screenshot/i, icon: '\uF030', name: 'camera' },
-
-    // File operations
-    { pattern: /Read \d+ lines?/i, icon: '\uF15C', name: 'file-text' },         //
-    { pattern: /Error reading/i, icon: '\uF071', name: 'warning' },             //
-
-    // MCP/Playwright errors - make them stand out
-    { pattern: /Error:.*Timeout/i, icon: '\uF017', name: 'clock' },             // ⏱ Timeout
-    { pattern: /Error:.*not a valid selector/i, icon: '\uF06A', name: 'exclamation-circle' }, //
-    { pattern: /Error:.*Failed to execute/i, icon: '\uF06A', name: 'exclamation-circle' },
-    { pattern: /DOMException/i, icon: '\uF06A', name: 'exclamation-circle' },
-    { pattern: /waiting for locator/i, icon: '\uF017', name: 'clock' },         // Timeout waiting
-    { pattern: /Write.*success/i, icon: '\uF0C7', name: 'save' },               //
-    { pattern: /Created file/i, icon: '\uF15B', name: 'file-new' },             //
-    { pattern: /Edited file/i, icon: '\uF044', name: 'edit' },                  //
-
-    // Search operations
-    { pattern: /Found \d+ (?:lines?|matches?|files?)/i, icon: '\uF002', name: 'search' },  //
-    { pattern: /No matches/i, icon: '\uF00D', name: 'times' },                  //
-    { pattern: /Searching/i, icon: '\uF002', name: 'search' },
-
-    // Browser/Navigation - MCP actions
-    { pattern: /Navigate/i, icon: '\uF0AC', name: 'globe' },                    //
-    { pattern: /Page loaded/i, icon: '\uF0AC', name: 'globe' },
-    { pattern: /Clicked button/i, icon: '\uF25A', name: 'hand-pointer' },       // Successful click
-    { pattern: /Clicked/i, icon: '\uF245', name: 'pointer' },                   //
-    { pattern: /Click/i, icon: '\uF245', name: 'pointer' },
-    { pattern: /Type|Fill/i, icon: '\uF11C', name: 'keyboard' },                //
-    { pattern: /Hover/i, icon: '\uF245', name: 'pointer' },
-
-    // Execution/Commands
-    { pattern: /Command.*exit/i, icon: '\uF120', name: 'terminal' },            //
-    { pattern: /Running/i, icon: '\uF04B', name: 'play' },                      //
-    { pattern: /Executed/i, icon: '\uF0E7', name: 'bolt' },                     //
-
-    // Git operations
-    { pattern: /Commit/i, icon: '\uF1D3', name: 'git' },                        //
-    { pattern: /Branch/i, icon: '\uE0A0', name: 'git-branch' },                 //
-    { pattern: /Push|Pull/i, icon: '\uF0C2', name: 'cloud' },                   //
-
-    // API/Network
-    { pattern: /Fetching|Request/i, icon: '\uF0C1', name: 'link' },             //
-    { pattern: /Response/i, icon: '\uF063', name: 'arrow-down' },               //
-  ];
-
-  // Basic character substitution for missing glyphs (fallback)
-  const charSubstitutions: Record<string, string> = {
-    '\u23F5': '\u25B6', // ⏵ → ▶ (play button)
-    '\u23F1': '\u25CF', // ⏱ → ● (stopwatch → bullet)
-    '\u23BF': '\u25B8', // ⎿ → ▸ (indicator)
-    '\u23F4': '\u25C0', // ⏴ → ◀ (reverse)
-    '\u23F9': '\u25A0', // ⏹ → ■ (stop)
-    '\u23FA': '\u25CF', // ⏺ → ● (record)
-  };
-
-  // The indicator characters Claude Code uses for MCP results
-  const mcpIndicators = ['\u23F5', '\u23F1', '\u23BF'];
-
   // Smart substitution: detect MCP patterns and use semantic icons
+  // Constants imported from ./constants/mcp-tool-icons.ts
   const substituteChars = (data: string): string => {
     let result = data;
 
     // For each MCP indicator character, check if it's followed by a known pattern
-    for (const indicator of mcpIndicators) {
+    for (const indicator of MCP_INDICATORS) {
       if (!result.includes(indicator)) continue;
 
       // Find all occurrences of the indicator
       const regex = new RegExp(indicator + '\\s*(.{0,50})', 'g');
       result = result.replace(regex, (match, afterIndicator) => {
         // Check each MCP tool pattern
-        for (const tool of mcpToolIcons) {
+        for (const tool of MCP_TOOL_ICONS) {
           if (tool.pattern.test(afterIndicator)) {
             // Replace indicator with semantic icon, optionally transform text
             const displayText = tool.transform || afterIndicator;
@@ -485,13 +498,13 @@ async function init() {
           }
         }
         // Fallback: use basic substitution
-        const fallback = charSubstitutions[indicator] || indicator;
+        const fallback = CHAR_SUBSTITUTIONS[indicator] || indicator;
         return fallback + ' ' + afterIndicator;
       });
     }
 
     // Also do basic substitution for any remaining characters
-    for (const [from, to] of Object.entries(charSubstitutions)) {
+    for (const [from, to] of Object.entries(CHAR_SUBSTITUTIONS)) {
       if (result.includes(from)) {
         result = result.replaceAll(from, to);
       }
@@ -502,6 +515,15 @@ async function init() {
 
   // PTY data handler
   window.claudeLens.pty.onData((data) => {
+    // Hide thinking indicator when we receive output from Claude
+    if (isThinking) {
+      isThinking = false;
+      thinkingIndicator.classList.add('hidden');
+      if (thinkingTimeout) {
+        clearTimeout(thinkingTimeout);
+        thinkingTimeout = null;
+      }
+    }
     // Substitute missing characters and enhance MCP output
     const processed = substituteChars(data);
     terminal.write(processed);
@@ -591,6 +613,51 @@ async function init() {
     showProjectModal(project);
   });
 
+  // Listen for project close (File > Close Project)
+  window.claudeLens.project.onClosed(() => {
+    browserLoaded = false;
+    refreshBtn.disabled = true;
+    restartServerBtn.disabled = true;
+    placeholder.classList.remove('hidden');
+    urlInput.value = 'http://localhost:3000';
+    setStatus('Disconnected');
+    browserHelpText.textContent = '';
+    // Reset Claude state
+    claudeRunning = false;
+    startClaudeBtn.textContent = 'Start Claude';
+    terminal.clear();
+    // Reset status bar state
+    currentProjectName = '';
+    currentServerPort = 0;
+    currentServerType = null;
+    playwrightConnected = false;
+    updateStatusBar();
+    // Reset project dropdown
+    projectDropdown.value = '';
+  });
+
+  // Listen for project loading (recent projects flow - shows loading overlay)
+  window.claudeLens.project.onLoading((info) => {
+    placeholder.classList.add('hidden');
+    loadingOverlay.classList.remove('hidden');
+    const serverType = info.useDevServer ? 'dev server' : 'static server';
+    setStatus(`Loading ${info.name} (${serverType})...`);
+    // Update status bar state
+    currentProjectName = info.name;
+    currentServerType = info.useDevServer ? 'dev' : 'static';
+    updateStatusBar();
+    // Update project dropdown to show current project
+    updateProjectDropdown();
+  });
+
+  // Handle project loading errors (recent projects flow - hides loading overlay)
+  window.claudeLens.project.onLoadingError((error) => {
+    loadingOverlay.classList.add('hidden');
+    placeholder.classList.remove('hidden');
+    setStatus(`Error: ${error}`);
+    console.error('[Project] Loading error:', error);
+  });
+
   // Handle Claude auto-starting when a project opens
   window.claudeLens.pty.onAutoStarted(() => {
     claudeRunning = true;
@@ -605,10 +672,42 @@ async function init() {
     }, 300);
   });
 
-  // Handle server ready event
+  // Handle server ready event (fired for both modal flow and recent projects flow)
   window.claudeLens.server.onReady((info) => {
     setStatus(`Server ready on port ${info.port}`, true);
-    updateBrowserBounds();
+    // Update status bar with port info
+    currentServerPort = info.port;
+    updateStatusBar();
+    // Ensure browserLoaded is true for recent projects flow (modal flow sets it separately)
+    if (!browserLoaded) {
+      console.log('[Viewport] Server ready, browser loaded, updating bounds');
+      setBrowserLoaded(`http://localhost:${info.port}`);
+    } else {
+      updateBrowserBounds();
+    }
+  });
+
+  // Handle page fully loaded event (fired when BrowserView finishes loading)
+  // This is the right time to hide loading overlay - after page is actually rendered
+  window.claudeLens.browser.onPageLoaded(() => {
+    loadingOverlay.classList.add('hidden');
+    console.log('[Viewport] Page fully loaded, hiding loading overlay');
+  });
+
+  // Handle Playwright connection status for status bar
+  window.claudeLens.browser.onPlaywrightConnecting(() => {
+    playwrightConnected = false;
+    updateStatusBar();
+  });
+
+  window.claudeLens.browser.onPlaywrightConnected(() => {
+    playwrightConnected = true;
+    updateStatusBar();
+  });
+
+  window.claudeLens.browser.onPlaywrightError(() => {
+    playwrightConnected = false;
+    updateStatusBar();
   });
 
   // Handle server exit event
@@ -622,16 +721,145 @@ async function init() {
     const isReady = progress.phase === 'ready';
     setStatus(progress.status, isReady);
   });
+
+  // Initialize project dropdown with recent projects
+  await updateProjectDropdown();
+
+  // Handle project dropdown change
+  projectDropdown.addEventListener('change', async () => {
+    const selectedPath = projectDropdown.value;
+    if (selectedPath) {
+      const result = await window.claudeLens.project.openRecent(selectedPath);
+      if (!result.success) {
+        console.error('Failed to open project:', result.error);
+        setStatus(`Failed: ${result.error}`);
+      }
+    }
+  });
 }
+
+// Update project dropdown with recent projects
+async function updateProjectDropdown() {
+  const recentProjects = await window.claudeLens.project.getRecent();
+
+  // Clear existing options except first
+  while (projectDropdown.options.length > 1) {
+    projectDropdown.remove(1);
+  }
+
+  // Add recent projects
+  for (const project of recentProjects) {
+    const option = document.createElement('option');
+    option.value = project.path;
+    option.textContent = project.name;
+    option.title = project.path;
+    projectDropdown.appendChild(option);
+  }
+
+  // Select current project if open
+  if (currentProjectName) {
+    const currentOption = Array.from(projectDropdown.options).find(
+      opt => opt.textContent === currentProjectName
+    );
+    if (currentOption) {
+      projectDropdown.value = currentOption.value;
+    }
+  }
+}
+
+// Default panel widths
+const DEFAULT_CLAUDE_WIDTH = 400;
+const MIN_PANEL_WIDTH = 300;
 
 // Panel resizers for three-column layout
 function setupResizers() {
+  // Restore saved widths from localStorage
+  restorePanelWidths();
+
   setupResizer(resizer1, 'browser-panel', 'left');
   setupResizer(resizer2, 'claude-panel', 'right');
 }
 
+// Save panel widths to localStorage
+function savePanelWidths() {
+  const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
+  const claudePanel = document.querySelector('.claude-panel') as HTMLElement;
+
+  const browserWidth = browserPanel.style.flex.includes('px')
+    ? parseInt(browserPanel.style.flex.match(/(\d+)px/)?.[1] || '0')
+    : 0;
+  const claudeWidth = claudePanel.style.flex.includes('px')
+    ? parseInt(claudePanel.style.flex.match(/(\d+)px/)?.[1] || '0')
+    : 0;
+
+  localStorage.setItem('claude-lens-panel-widths', JSON.stringify({
+    browser: browserWidth,
+    claude: claudeWidth
+  }));
+}
+
+// Restore panel widths from localStorage
+function restorePanelWidths() {
+  try {
+    const saved = localStorage.getItem('claude-lens-panel-widths');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+
+      // Validate structure before destructuring
+      if (typeof parsed !== 'object' || parsed === null) {
+        return;
+      }
+
+      const { browser, claude } = parsed;
+      const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
+      const claudePanel = document.querySelector('.claude-panel') as HTMLElement;
+
+      // Validate types before using
+      if (typeof browser === 'number' && browser > 0) {
+        browserPanel.style.flex = `0 0 ${browser}px`;
+      }
+      if (typeof claude === 'number' && claude > 0) {
+        claudePanel.style.flex = `0 0 ${claude}px`;
+      }
+    }
+  } catch (error) {
+    console.warn('[PanelWidths] Failed to restore saved widths:', error);
+    // Clear corrupted data
+    try {
+      localStorage.removeItem('claude-lens-panel-widths');
+    } catch {
+      // localStorage inaccessible
+    }
+  }
+}
+
+// Reset panel widths to defaults
+function resetPanelWidths() {
+  const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
+  const claudePanel = document.querySelector('.claude-panel') as HTMLElement;
+
+  browserPanel.style.flex = '1';
+  claudePanel.style.flex = `0 0 ${DEFAULT_CLAUDE_WIDTH}px`;
+
+  localStorage.removeItem('claude-lens-panel-widths');
+
+  // Update browser bounds and terminal
+  const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
+  window.claudeLens.browser.updateBounds(0, drawerHeight);
+  fitAddon.fit();
+  terminal.refresh(0, terminal.rows - 1);
+  if (claudeRunning) {
+    window.claudeLens.pty.resize(terminal.cols, terminal.rows);
+  }
+}
+
 function setupResizer(resizer: HTMLElement, panelClass: string, side: 'left' | 'right') {
   let isResizing = false;
+
+  // Double-click to reset panel widths
+  resizer.addEventListener('dblclick', () => {
+    resetPanelWidths();
+  });
 
   resizer.addEventListener('mousedown', (e) => {
     isResizing = true;
@@ -649,7 +877,8 @@ function setupResizer(resizer: HTMLElement, panelClass: string, side: 'left' | '
 
     if (side === 'left') {
       const newWidth = e.clientX - mainRect.left;
-      if (newWidth > 300 && newWidth < mainRect.width - 600) {
+      // Ensure minimum widths: browser panel + context panel + claude panel
+      if (newWidth >= MIN_PANEL_WIDTH && newWidth < mainRect.width - MIN_PANEL_WIDTH * 2) {
         panel.style.flex = `0 0 ${newWidth}px`;
         const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
         // Apply viewport constraint to resize
@@ -658,7 +887,8 @@ function setupResizer(resizer: HTMLElement, panelClass: string, side: 'left' | '
       }
     } else {
       const newWidth = mainRect.right - e.clientX;
-      if (newWidth > 300 && newWidth < mainRect.width - 600) {
+      // Ensure minimum widths for claude panel and remaining space
+      if (newWidth >= MIN_PANEL_WIDTH && newWidth < mainRect.width - MIN_PANEL_WIDTH * 2) {
         panel.style.flex = `0 0 ${newWidth}px`;
       }
     }
@@ -669,6 +899,8 @@ function setupResizer(resizer: HTMLElement, panelClass: string, side: 'left' | '
       isResizing = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      // Save panel widths to localStorage
+      savePanelWidths();
       fitAddon.fit();
       // Force terminal refresh to clear rendering artifacts after panel resize
       terminal.refresh(0, terminal.rows - 1);
@@ -1443,22 +1675,24 @@ goBtn.addEventListener('click', async () => {
   consoleBuffer.clear();
   updateConsoleUI();
 
+  // Show loading spinner
+  placeholder.classList.add('hidden');
+  loadingOverlay.classList.remove('hidden');
   setStatus('Loading...');
+
   const result = await window.claudeLens.browser.navigate(url);
 
+  // Hide loading spinner
+  loadingOverlay.classList.add('hidden');
+
   if (!result.success) {
+    placeholder.classList.remove('hidden');
     setStatus('Failed to load');
     alert(`Could not load URL: ${result.error}`);
     return;
   }
 
-  browserLoaded = true;
-  placeholder.classList.add('hidden');
-  setStatus('Connected', true);
-  browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
-
-  // Update browser view bounds to match panel width
-  updateBrowserBounds();
+  setBrowserLoaded();
 });
 
 urlInput.addEventListener('keypress', (e) => {
@@ -1467,11 +1701,34 @@ urlInput.addEventListener('keypress', (e) => {
 
 refreshBtn.addEventListener('click', async () => {
   if (!browserLoaded) return;
+  loadingOverlay.classList.remove('hidden');
+  setStatus('Refreshing...');
   await window.claudeLens.browser.navigate(urlInput.value);
+  loadingOverlay.classList.add('hidden');
+  setStatus('Connected', true);
+});
+
+// Restart server button
+restartServerBtn.addEventListener('click', async () => {
+  if (restartServerBtn.disabled) return;
+
+  restartServerBtn.disabled = true;
+  loadingOverlay.classList.remove('hidden');
+  setStatus('Restarting server...');
+
+  const result = await window.claudeLens.project.restartServer();
+
+  if (result.success) {
+    setStatus('Server restarted', true);
+  } else {
+    setStatus('Restart failed: ' + (result.error || 'Unknown error'));
+    loadingOverlay.classList.add('hidden');
+  }
+  // Button will be re-enabled when server:ready fires
 });
 
 // Viewport preset widths (0 = full width / no constraint)
-const viewportPresets: Record<string, number> = {
+const VIEWPORT_PRESETS: Record<string, number> = {
   'full': 0,
   'desktop': 1280,
   'tablet-landscape': 1024,
@@ -1483,7 +1740,64 @@ const viewportPresets: Record<string, number> = {
 // Viewport preset change handler
 viewportSelect.addEventListener('change', () => {
   const preset = viewportSelect.value;
-  viewportWidth = viewportPresets[preset] || 0;
+  viewportWidth = VIEWPORT_PRESETS[preset] || 0;
+  updateBrowserBounds();
+  updateStatusBar();
+});
+
+// Listen for viewport changes from MCP tools (Claude can change viewport programmatically)
+window.claudeLens.browser.onSetViewport((width: number) => {
+  // Find matching preset or set as custom
+  const presetByWidth: Record<number, string> = {
+    0: 'full',
+    1280: 'desktop',
+    1024: 'tablet-landscape',
+    768: 'tablet',
+    425: 'mobile-large',
+    375: 'mobile',
+  };
+
+  const preset = presetByWidth[width];
+  if (preset) {
+    viewportSelect.value = preset;
+    viewportWidth = width;
+  } else {
+    // Custom width - set to full and apply custom constraint
+    viewportSelect.value = 'full';
+    viewportWidth = width;
+  }
+
+  updateBrowserBounds();
+  updateStatusBar();
+  // Show user feedback
+  const widthLabel = viewportWidth > 0 ? `${viewportWidth}px` : 'Full Width';
+  setStatus(`Viewport: ${widthLabel}`);
+});
+
+// Update browser bounds on window resize (ensures bounds update after maximize/restore)
+window.addEventListener('resize', debounce(() => {
+  if (browserLoaded) {
+    console.log('[Viewport] Window resize detected, updating bounds');
+    updateBrowserBounds();
+  }
+}, 100));
+
+// Use ResizeObserver for more reliable panel size tracking
+const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
+const panelResizeObserver = new ResizeObserver(debounce(() => {
+  if (browserLoaded) {
+    console.log('[Viewport] Panel resize detected, updating bounds');
+    updateBrowserBounds();
+  }
+}, 50));
+panelResizeObserver.observe(browserPanel);
+
+// Reset viewport to full width when starting a new project
+window.claudeLens.browser.onResetViewport(() => {
+  console.log('[Viewport] Received resetViewport, current viewportWidth:', viewportWidth);
+  viewportWidth = 0;
+  viewportSelect.value = 'full';
+  console.log('[Viewport] Reset to full width, calling updateBrowserBounds');
   updateBrowserBounds();
 });
 
@@ -1540,16 +1854,27 @@ async function toggleFreezeHover() {
 // Freeze hover button click
 freezeHoverBtn.addEventListener('click', toggleFreezeHover);
 
-// Keyboard shortcut: Press F to freeze/unfreeze hover (works while hovering!)
+// Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
-  // Only trigger if F key and not typing in an input
-  if (e.key === 'f' || e.key === 'F') {
-    const activeEl = document.activeElement;
-    const isTyping = activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA';
-    if (!isTyping && browserLoaded) {
-      e.preventDefault();
-      toggleFreezeHover();
-    }
+  const activeEl = document.activeElement;
+  const isTyping = activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA';
+
+  // Press F to freeze/unfreeze hover (works while hovering!)
+  if ((e.key === 'f' || e.key === 'F') && !isTyping && browserLoaded) {
+    e.preventDefault();
+    toggleFreezeHover();
+  }
+
+  // Ctrl+I to toggle inspect mode
+  if (e.ctrlKey && (e.key === 'i' || e.key === 'I') && browserLoaded) {
+    e.preventDefault();
+    inspectBtn.click();
+  }
+
+  // Ctrl+R to refresh (when not in terminal)
+  if (e.ctrlKey && (e.key === 'r' || e.key === 'R') && browserLoaded && !isTyping) {
+    e.preventDefault();
+    refreshBtn.click();
   }
 });
 
@@ -1594,20 +1919,10 @@ sendSequenceBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Format lean sequence context
-  let sequenceContext = `## Interaction Sequence (${inspectSequence.length} steps)\n\n`;
-
-  for (let i = 0; i < inspectSequence.length; i++) {
-    const interaction = inspectSequence[i];
-    if (!interaction) continue;
-    const el = interaction.element;
-
-    sequenceContext += `${i + 1}. \`${el.selector}\``;
-    if (el.text) sequenceContext += ` "${el.text.slice(0, 30)}${el.text.length > 30 ? '...' : ''}"`;
-    sequenceContext += '\n';
-  }
-
+  // Format sequence using optimized formatter (prioritizes file:line > component > selector)
+  const sequenceContext = formatSequence(inspectSequence);
   const fullPrompt = `Here is the captured interaction sequence:\n\n${sequenceContext}`;
+  showThinking();
   const result = await window.claudeLens.sendToClaude(fullPrompt, '');
 
   if (result.success) {
@@ -1616,6 +1931,7 @@ sendSequenceBtn.addEventListener('click', async () => {
     terminal.focus();
     setStatus('Sequence sent to Claude', true);
   } else {
+    hideThinking();
     alert('Failed to send to Claude');
   }
 });
@@ -1646,6 +1962,7 @@ sendToastsBtn.addEventListener('click', async () => {
   }
 
   const fullPrompt = `Here are the captured toast notifications:\n\n${toastContext}`;
+  showThinking();
   const result = await window.claudeLens.sendToClaude(fullPrompt, '');
 
   if (result.success) {
@@ -1653,6 +1970,7 @@ sendToastsBtn.addEventListener('click', async () => {
     terminal.focus();
     setStatus('Toasts sent to Claude', true);
   } else {
+    hideThinking();
     alert('Failed to send to Claude');
   }
 });
@@ -1669,19 +1987,16 @@ consoleSendBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Format lean console context
-  const consoleLines = consoleBuffer.toArray().map(m => {
-    return `[${m.level.toUpperCase()}] ${m.message}`;
-  });
-
-  const context = `## Console (${consoleBuffer.length} messages)\n\`\`\`\n${consoleLines.join('\n')}\n\`\`\``;
-
-  const result = await window.claudeLens.sendToClaude(`Here are the browser console messages:\n\n${context}`, '');
+  // Format console using optimized formatter
+  const consoleContext = formatConsole(consoleBuffer.toArray());
+  showThinking();
+  const result = await window.claudeLens.sendToClaude(`Here are the browser console messages:\n\n${consoleContext}`, '');
 
   if (result.success) {
     terminal.focus();
     setStatus('Console sent to Claude', true);
   } else {
+    hideThinking();
     alert('Failed to send to Claude');
   }
 });
@@ -1702,107 +2017,22 @@ sendPromptBtn.addEventListener('click', async () => {
 
   if (selectedElements.length === 0) {
     // Send prompt without element context
+    showThinking();
     window.claudeLens.pty.write(prompt + '\n');
     promptInput.value = '';
     terminal.focus();
     return;
   }
 
-  // Format rich element context with Tailwind translations
-  const elementContexts = selectedElements.map(el => {
-    let ctx = `## <${el.tagName}${el.id ? '#' + el.id : ''}>\n`;
-    ctx += `**Selector:** \`${el.selector}\`\n`;
-
-    // Primary edit target (most important for Claude)
-    if (el.framework?.components[0]?.source) {
-      const src = el.framework.components[0].source;
-      ctx += `**Edit:** \`${src.fileName}:${src.lineNumber}\`\n`;
-    }
-
-    if (el.text) ctx += `**Text:** "${el.text.slice(0, 50)}${el.text.length > 50 ? '...' : ''}"\n`;
-
-    // CSS classes with Tailwind translations
-    if (el.classes && el.classes.length > 0) {
-      const tw: Record<string, string> = {
-        // Typography
-        'text-xs': '12px', 'text-sm': '14px', 'text-base': '16px', 'text-lg': '18px',
-        'text-xl': '20px', 'text-2xl': '24px', 'text-3xl': '30px', 'text-4xl': '36px',
-        'text-5xl': '48px', 'font-thin': '100', 'font-light': '300', 'font-normal': '400',
-        'font-medium': '500', 'font-semibold': '600', 'font-bold': '700', 'font-extrabold': '800',
-        'italic': 'italic', 'underline': 'underline', 'tracking-tight': '-0.025em',
-        'tracking-wide': '0.025em', 'leading-tight': 'lh:1.25', 'leading-relaxed': 'lh:1.625',
-        // Layout
-        'flex': 'flex', 'grid': 'grid', 'block': 'block', 'inline': 'inline', 'hidden': 'hidden',
-        'flex-row': 'row', 'flex-col': 'column', 'items-center': 'align-center',
-        'items-start': 'align-start', 'items-end': 'align-end', 'justify-center': 'center',
-        'justify-between': 'space-between', 'justify-start': 'start',
-        'gap-1': '4px', 'gap-2': '8px', 'gap-4': '16px', 'gap-6': '24px', 'gap-8': '32px',
-        // Spacing
-        'p-0': '0', 'p-1': '4px', 'p-2': '8px', 'p-4': '16px', 'p-6': '24px', 'p-8': '32px',
-        'm-0': '0', 'm-auto': 'auto', 'm-1': '4px', 'm-2': '8px', 'm-4': '16px',
-        'px-4': 'x:16px', 'py-2': 'y:8px', 'px-6': 'x:24px', 'py-4': 'y:16px',
-        // Sizing
-        'w-full': '100%', 'w-auto': 'auto', 'h-full': '100%', 'h-auto': 'auto',
-        'max-w-md': '448px', 'max-w-lg': '512px', 'max-w-xl': '576px',
-        // Position
-        'relative': 'relative', 'absolute': 'absolute', 'fixed': 'fixed', 'sticky': 'sticky',
-        // Border/radius
-        'rounded': '4px', 'rounded-md': '6px', 'rounded-lg': '8px', 'rounded-xl': '12px',
-        'rounded-full': '9999px', 'border': '1px', 'border-2': '2px',
-        // Effects
-        'shadow': 'shadow-sm', 'shadow-md': 'shadow-md', 'shadow-lg': 'shadow-lg',
-        'opacity-50': '0.5', 'cursor-pointer': 'clickable',
-        // Colors
-        'bg-white': '#fff', 'bg-black': '#000', 'text-white': '#fff', 'text-black': '#000',
-        'text-gray-500': '#6b7280', 'text-gray-700': '#374151', 'text-gray-900': '#111827',
-        'bg-gray-100': '#f3f4f6', 'bg-gray-800': '#1f2937', 'bg-blue-500': '#3b82f6',
-        'bg-red-500': '#ef4444', 'bg-green-500': '#22c55e',
-      };
-
-      // Translate Tailwind classes (max 12 to avoid bloat)
-      const classInfo = el.classes.slice(0, 12).map(c => {
-        if (tw[c]) return `${c}(${tw[c]})`;
-        // Handle responsive/state prefixes
-        const match = c.match(/^(hover:|focus:|dark:|sm:|md:|lg:)(.+)$/);
-        if (match && tw[match[2]]) return `${c}(${tw[match[2]]})`;
-        return c;
-      });
-      ctx += `**Classes:** ${classInfo.join(' ')}\n`;
-    }
-
-    // Key computed styles
-    if (el.styles) {
-      const keyStyles: string[] = [];
-      if (el.styles.color && el.styles.color !== 'rgb(0, 0, 0)') keyStyles.push(`color:${el.styles.color}`);
-      if (el.styles.backgroundColor && el.styles.backgroundColor !== 'rgba(0, 0, 0, 0)') keyStyles.push(`bg:${el.styles.backgroundColor}`);
-      if (el.styles.fontSize) keyStyles.push(`font:${el.styles.fontSize}`);
-      if (keyStyles.length > 0) ctx += `**Computed:** ${keyStyles.join(', ')}\n`;
-    }
-
-    // Key attributes
-    if (el.attributes) {
-      const keyAttrs: string[] = [];
-      for (const attr of ['href', 'src', 'alt', 'type', 'placeholder', 'aria-label', 'data-testid', 'role']) {
-        if (el.attributes[attr]) {
-          const val = el.attributes[attr].slice(0, 40);
-          keyAttrs.push(`${attr}="${val}${el.attributes[attr].length > 40 ? '...' : ''}"`);
-        }
-      }
-      if (keyAttrs.length > 0) ctx += `**Attrs:** ${keyAttrs.join(', ')}\n`;
-    }
-
-    // Parent context (DOM hierarchy)
-    if (el.parentChain && el.parentChain.length > 0) {
-      const parents = el.parentChain.slice(0, 3).map(p => p.description).join(' → ');
-      ctx += `**In:** ${parents}\n`;
-    }
-
-    return ctx;
-  }).join('\n');
+  // Format element context using the optimized formatter
+  // Lean mode prioritizes: file:line > component name > searchable text
+  // Detailed mode includes: selector, classes, styles, position
+  const elementContext = formatElements(selectedElements, { mode: contextMode });
 
   // If no prompt, use a default instruction
   const finalPrompt = prompt || 'Here is the element I selected:';
-  const fullPrompt = `${finalPrompt}\n\n${elementContexts}`;
+  const fullPrompt = `${finalPrompt}\n\n${elementContext}`;
+  showThinking();
   const result = await window.claudeLens.sendToClaude(fullPrompt, '');
 
   if (result.success) {
@@ -1821,6 +2051,7 @@ sendPromptBtn.addEventListener('click', async () => {
     terminal.focus();
     setStatus('Sent to Claude', true);
   } else {
+    hideThinking();
     alert('Failed to send to Claude');
   }
 });
@@ -1832,11 +2063,130 @@ promptInput.addEventListener('keypress', (e) => {
   }
 });
 
+// Context mode toggle (lean vs detailed)
+contextModeSelect.addEventListener('change', () => {
+  contextMode = contextModeSelect.value as ContextMode;
+});
+
+// Copy to clipboard helper with visual feedback
+async function copyToClipboard(text: string, button: HTMLButtonElement): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    button.classList.add('copied');
+    // Swap icon to checkmark temporarily
+    const originalSvg = button.innerHTML;
+    button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="20 6 9 17 4 12"></polyline>
+    </svg>`;
+    setStatus('Copied!', true);
+    setTimeout(() => {
+      button.classList.remove('copied');
+      button.innerHTML = originalSvg;
+    }, 1500);
+  } catch (err) {
+    console.error('Failed to copy:', err);
+    setStatus('Copy failed');
+  }
+}
+
+// Copy selector button
+copySelectorBtn.addEventListener('click', () => {
+  const selector = elementPath.textContent;
+  if (selector) {
+    copyToClipboard(selector, copySelectorBtn);
+  }
+});
+
+// Copy component info button
+copyComponentBtn.addEventListener('click', () => {
+  // Get the current element's component info
+  const lastElement = selectedElements[selectedElements.length - 1];
+  if (lastElement?.framework?.components && lastElement.framework.components.length > 0) {
+    const comp = lastElement.framework.components[0];
+    let copyText = `<${comp?.name} />`;
+    if (comp?.source) {
+      copyText += `\n${comp.source.fileName}:${comp.source.lineNumber}`;
+    }
+    copyToClipboard(copyText, copyComponentBtn);
+  }
+});
+
 // Status helper
 function setStatus(text: string, connected = false) {
   statusEl.textContent = text;
   statusEl.className = connected ? 'status connected' : 'status';
 }
+
+// Thinking indicator helper
+function showThinking(): void {
+  // Show thinking indicator after a brief delay (500ms)
+  // This prevents flashing for instant responses
+  if (thinkingTimeout) clearTimeout(thinkingTimeout);
+  thinkingTimeout = setTimeout(() => {
+    isThinking = true;
+    thinkingIndicator.classList.remove('hidden');
+  }, 500);
+}
+
+function hideThinking(): void {
+  if (thinkingTimeout) {
+    clearTimeout(thinkingTimeout);
+    thinkingTimeout = null;
+  }
+  isThinking = false;
+  thinkingIndicator.classList.add('hidden');
+}
+
+// Status bar update helper
+function updateStatusBar(): void {
+  // Project name
+  if (currentProjectName) {
+    projectStatus.textContent = currentProjectName;
+    projectStatus.classList.remove('hidden');
+  } else {
+    projectStatus.classList.add('hidden');
+  }
+
+  // Server status
+  if (currentServerPort > 0) {
+    const typeLabel = currentServerType === 'dev' ? 'Dev' : 'Static';
+    serverStatus.textContent = `${typeLabel} :${currentServerPort}`;
+    serverStatus.classList.remove('hidden');
+  } else {
+    serverStatus.classList.add('hidden');
+  }
+
+  // Playwright status
+  if (browserLoaded) {
+    playwrightStatus.textContent = playwrightConnected ? '✓ Playwright' : '○ Playwright';
+    playwrightStatus.classList.toggle('success', playwrightConnected);
+    playwrightStatus.classList.toggle('warning', !playwrightConnected);
+    playwrightStatus.classList.remove('hidden');
+  } else {
+    playwrightStatus.classList.add('hidden');
+  }
+
+  // Viewport status
+  if (viewportWidth > 0) {
+    viewportStatus.textContent = `${viewportWidth}px`;
+    viewportStatus.classList.remove('hidden');
+  } else {
+    viewportStatus.classList.add('hidden');
+  }
+}
+
+// Server status click handler - copy URL to clipboard
+serverStatus.addEventListener('click', async () => {
+  if (currentServerPort > 0) {
+    const url = `http://localhost:${currentServerPort}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setStatus('URL copied!', true);
+    } catch (err) {
+      console.error('Failed to copy URL:', err);
+    }
+  }
+});
 
 // Initialize on load
 init();

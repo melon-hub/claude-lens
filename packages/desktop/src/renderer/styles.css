@@ -112,6 +112,35 @@ body {
   font-weight: 400;
 }
 
+.project-dropdown-container {
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.project-dropdown {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  min-width: 120px;
+  max-width: 200px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.project-dropdown:hover {
+  border-color: var(--accent);
+}
+
+.project-dropdown:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+}
+
 .url-input {
   width: 400px;
   padding: 6px 12px;
@@ -120,11 +149,17 @@ body {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   font-size: 13px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .url-input:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+}
+
+.url-input::placeholder {
+  color: var(--text-muted);
 }
 
 /* Buttons */
@@ -136,11 +171,20 @@ body {
   color: var(--text-primary);
   cursor: pointer;
   font-size: 13px;
-  transition: background 0.2s;
+  transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
 }
 
 .btn:hover {
   background: var(--bg-hover);
+}
+
+.btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.3);
+}
+
+.btn:active {
+  transform: scale(0.98);
 }
 
 .btn-primary {
@@ -152,6 +196,16 @@ body {
   background: var(--yellow-hover);
 }
 
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn:disabled:hover {
+  background: var(--bg-tertiary);
+}
+
 .btn-secondary {
   background: #3c8dbc;
   color: #ffffff;
@@ -159,6 +213,18 @@ body {
 
 .btn-secondary:hover {
   background: #2d6d94;
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
 }
 
 .btn-small {
@@ -240,12 +306,37 @@ body {
   width: 4px;
   background: var(--border);
   cursor: col-resize;
-  transition: background 0.2s;
+  transition: background 0.15s ease, width 0.15s ease;
   flex-shrink: 0;
+  position: relative;
 }
 
 .resizer:hover {
   background: var(--accent);
+  width: 6px;
+}
+
+.resizer:active {
+  background: var(--accent);
+  width: 6px;
+}
+
+/* Visual drag indicator */
+.resizer::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 24px;
+  background: transparent;
+  border-radius: 1px;
+  transition: background 0.15s ease;
+}
+
+.resizer:hover::before {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* Browser Panel */
@@ -259,9 +350,13 @@ body {
 }
 
 .placeholder-icon {
-  font-size: 48px;
   margin-bottom: 16px;
   opacity: 0.5;
+  color: var(--text-secondary);
+}
+
+.placeholder-icon svg {
+  display: block;
 }
 
 .placeholder-title {
@@ -272,6 +367,37 @@ body {
 
 .placeholder-text {
   font-size: 13px;
+}
+
+/* Loading Overlay */
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  z-index: 10;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--text-secondary);
 }
 
 .hidden {
@@ -497,9 +623,13 @@ body {
 }
 
 .empty-icon {
-  font-size: 32px;
   margin-bottom: 12px;
   opacity: 0.5;
+  color: var(--text-secondary);
+}
+
+.empty-icon svg {
+  display: block;
 }
 
 .empty-text {
@@ -598,7 +728,33 @@ body {
 .prompt-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
   margin-top: 8px;
+}
+
+/* Context mode dropdown (lean/detailed) - matches viewport-select */
+.context-mode-select {
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s ease;
+  margin-left: auto;
+}
+
+.context-mode-select:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.context-mode-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
 /* Terminal */
@@ -886,6 +1042,72 @@ body {
 
 .project-buttons .btn {
   min-width: 140px;
+}
+
+.project-buttons .btn-primary {
+  order: 1;
+}
+
+.project-buttons .btn-secondary {
+  order: 2;
+}
+
+.project-buttons .btn-ghost {
+  order: 3;
+}
+
+/* Recent Projects */
+.recent-projects {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.recent-projects-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.recent-projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recent-project-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.recent-project-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.recent-project-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.recent-project-path {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
 /* Drag and Drop Overlay */
@@ -1268,4 +1490,132 @@ body.drag-over::after {
 .context-warning.cross-origin {
   background: rgba(239, 68, 68, 0.2);
   color: #ef4444;
+}
+
+/* Copy Button Styles */
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.copy-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.copy-btn:active {
+  transform: scale(0.95);
+}
+
+.copy-btn.copied {
+  color: var(--success);
+}
+
+.copy-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Section header with copy button */
+.section-header-with-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.section-header .copy-btn {
+  margin-left: auto;
+}
+
+/* Claude Thinking Indicator */
+.thinking-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 3px 10px;
+  background: rgba(139, 92, 246, 0.15);
+  border-radius: 12px;
+  font-size: 11px;
+  color: #a78bfa;
+}
+
+.thinking-dot {
+  width: 8px;
+  height: 8px;
+  background: #a78bfa;
+  border-radius: 50%;
+  animation: thinking-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes thinking-pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.thinking-text {
+  font-weight: 500;
+}
+
+/* Status Bar (Enhanced) */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.status-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.status-item.success {
+  color: var(--success);
+}
+
+.status-item.warning {
+  color: var(--warning);
+}
+
+.status-item .status-icon {
+  font-size: 10px;
+}
+
+/* Header right - allow flexible width for status bar */
+.header-right {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
 }

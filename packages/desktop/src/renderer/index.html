@@ -139,6 +139,29 @@
             <div class="section-content" id="componentList"></div>
           </div>
 
+          <!-- Source Location Section -->
+          <div id="sourceInfo" class="context-section hidden">
+            <div class="section-header">
+              <span class="section-title">SOURCE</span>
+              <span id="sourceStatus" class="source-status"></span>
+            </div>
+            <div class="section-content">
+              <div id="sourceAvailable" class="source-available hidden">
+                <code id="sourceLocation" class="source-location"></code>
+                <button id="copySourceBtn" class="copy-btn" title="Copy source location">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
+              </div>
+              <div id="sourceUnavailable" class="source-unavailable hidden">
+                <span class="source-warning">Not available - React dev mode required</span>
+                <button id="fixSourceBtn" class="btn btn-small btn-fix" title="Ask Claude to enable source maps">Fix</button>
+              </div>
+            </div>
+          </div>
+
           <!-- Parent Hierarchy Section -->
           <div id="hierarchyInfo" class="context-section hidden">
             <div class="section-header">

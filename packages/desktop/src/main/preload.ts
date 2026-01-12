@@ -159,6 +159,12 @@ contextBridge.exposeInMainWorld('claudeLens', {
   // The key integration - send prompt to Claude with element context
   sendToClaude: (prompt: string, elementContext: string) =>
     ipcRenderer.invoke('send-to-claude', prompt, elementContext),
+
+  // Clipboard APIs for image paste
+  clipboard: {
+    hasImage: () => ipcRenderer.invoke('clipboard:hasImage') as Promise<boolean>,
+    saveImage: () => ipcRenderer.invoke('clipboard:saveImage') as Promise<{ success: boolean; path?: string; error?: string }>,
+  },
 });
 
 // Cleanup function type for event listeners
@@ -219,6 +225,10 @@ export interface ClaudeLensAPI {
     onProgress: (callback: (progress: { elapsed: number; status: string; phase: string }) => void) => CleanupFn;
   };
   sendToClaude: (prompt: string, elementContext: string) => Promise<{ success: boolean }>;
+  clipboard: {
+    hasImage: () => Promise<boolean>;
+    saveImage: () => Promise<{ success: boolean; path?: string; error?: string }>;
+  };
 }
 
 export interface ProjectInfo {

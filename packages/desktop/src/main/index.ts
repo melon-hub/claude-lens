@@ -10,6 +10,7 @@
 import { app, BrowserWindow, BrowserView, ipcMain, shell, dialog, clipboard, Menu } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as fsPromises from 'fs/promises';
 import * as pty from 'node-pty';
 import { PtyManager } from './pty-manager';
@@ -1677,6 +1678,38 @@ ipcMain.handle('send-to-claude', async (_event, prompt: string, elementContext: 
   ptyManager.write(fullPrompt + '\n');
 
   return { success: true };
+});
+
+// Clipboard image detection
+ipcMain.handle('clipboard:hasImage', () => {
+  const image = clipboard.readImage();
+  return !image.isEmpty();
+});
+
+// Save clipboard image to temp file and return path
+ipcMain.handle('clipboard:saveImage', async () => {
+  try {
+    const image = clipboard.readImage();
+    if (image.isEmpty()) {
+      return { success: false, error: 'No image in clipboard' };
+    }
+
+    // Generate timestamped filename
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filename = `claude-lens-${timestamp}.png`;
+    const tempDir = os.tmpdir();
+    const imagePath = path.join(tempDir, filename);
+
+    // Save as PNG
+    const pngBuffer = image.toPNG();
+    await fsPromises.writeFile(imagePath, pngBuffer);
+
+    console.log(`[Clipboard] Saved image to ${imagePath}`);
+    return { success: true, path: imagePath };
+  } catch (error) {
+    console.error('[Clipboard] Failed to save image:', error);
+    return { success: false, error: String(error) };
+  }
 });
 
 // Forward PTY output to renderer

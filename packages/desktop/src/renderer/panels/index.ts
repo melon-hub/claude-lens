@@ -24,3 +24,13 @@ export { setupResizers, savePanelWidths, restorePanelWidths, resetPanelWidths } 
 
 // Console drawer
 export { addConsoleMessage, updateConsoleUI, updateConsoleDrawer } from './console-drawer';
+
+// Context panel
+export {
+  addSelectedElement,
+  updateContextPanel,
+  updateElementChips,
+  removeElement,
+  setContextPanelCallbacks,
+  resetContextPanelUI,
+} from './context-panel';

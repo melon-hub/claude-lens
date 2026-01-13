@@ -5,12 +5,7 @@
  * Cursor-style element inspection and context display.
  */
 
-import { Terminal } from 'xterm';
 import type { ElementInfo, ProjectInfo, CapturedInteraction } from './types';
-import { FitAddon } from 'xterm-addon-fit';
-import { WebLinksAddon } from 'xterm-addon-web-links';
-import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { SearchAddon } from '@xterm/addon-search';
 import 'xterm/css/xterm.css';
 import {
   formatElements,
@@ -18,7 +13,11 @@ import {
   formatConsole,
   type ContextMode,
 } from './context-formatter';
-import { TERMINAL_OPTIONS, substituteChars } from './terminal';
+import {
+  terminal,
+  fitAddon,
+  substituteChars,
+} from './terminal';
 import { debounce, waitForFonts, runFontDiagnostics, copyToClipboard } from './utils';
 import { VIEWPORT_PRESETS } from './handlers';
 import { setStatus, showThinking, hideThinking, updateStatusBar } from './ui-helpers';
@@ -137,16 +136,7 @@ import {
   serverStatus,
 } from './setup';
 
-// Terminal setup - configuration from terminal module
-const terminal = new Terminal(TERMINAL_OPTIONS);
-
-const fitAddon = new FitAddon();
-const unicode11Addon = new Unicode11Addon();
-terminal.loadAddon(fitAddon);
-terminal.loadAddon(new WebLinksAddon());
-terminal.loadAddon(unicode11Addon);
-terminal.unicode.activeVersion = '11';
-
+// Terminal is imported from ./terminal module (terminal, fitAddon, searchAddon, helpers)
 // State is managed by the state module - all state accessed via state.* getters
 // and modified via updateState() or helper functions
 // Browser helpers (updateBrowserBounds, setBrowserLoaded) imported from ./browser-helpers
@@ -293,9 +283,7 @@ async function init() {
   // Run font diagnostics (only warns if issues)
   runFontDiagnostics();
 
-  // Load search addon for Ctrl+F functionality
-  const searchAddon = new SearchAddon();
-  terminal.loadAddon(searchAddon);
+  // searchAddon is loaded in terminal/manager.ts for Ctrl+F functionality
 
   // Custom key handler for image paste (must intercept before xterm's default paste)
   terminal.attachCustomKeyEventHandler((e) => {

@@ -60,12 +60,20 @@ export function restorePanelWidths(): void {
       const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
       const claudePanel = document.querySelector('.claude-panel') as HTMLElement;
 
-      // Validate types before using
-      if (typeof browser === 'number' && browser > 0) {
+      // Validate types and ensure widths fit current window
+      const windowWidth = window.innerWidth;
+      const minContextPanel = 200; // Middle panel needs space
+
+      if (typeof browser === 'number' && browser > 0 &&
+          typeof claude === 'number' && claude > 0 &&
+          browser + claude + minContextPanel < windowWidth) {
+        // Only restore if saved widths fit in current window
         browserPanel.style.flex = `0 0 ${browser}px`;
-      }
-      if (typeof claude === 'number' && claude > 0) {
         claudePanel.style.flex = `0 0 ${claude}px`;
+      } else if (typeof browser === 'number' || typeof claude === 'number') {
+        // Widths don't fit - clear saved data and use defaults
+        console.log('[PanelWidths] Saved widths exceed window size, using defaults');
+        localStorage.removeItem('claude-lens-panel-widths');
       }
     }
   } catch (error) {

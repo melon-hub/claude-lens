@@ -15,3 +15,12 @@ export {
   escapeHtml,
   formatTimestamp,
 } from './helpers';
+
+// Project modal
+export { showProjectModal } from './project-modal';
+
+// Panel resizers
+export { setupResizers, savePanelWidths, restorePanelWidths, resetPanelWidths } from './resizers';
+
+// Console drawer
+export { addConsoleMessage, updateConsoleUI, updateConsoleDrawer } from './console-drawer';

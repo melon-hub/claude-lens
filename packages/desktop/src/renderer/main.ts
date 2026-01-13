@@ -5,7 +5,7 @@
  * Cursor-style element inspection and context display.
  */
 
-import type { ElementInfo, ProjectInfo, CapturedInteraction } from './types';
+import type { ElementInfo, CapturedInteraction } from './types';
 import 'xterm/css/xterm.css';
 import {
   formatElements,
@@ -23,11 +23,11 @@ import { debounce, waitForFonts, runFontDiagnostics, copyToClipboard } from './u
 import { VIEWPORT_PRESETS } from './handlers';
 import { setStatus, showThinking, hideThinking, updateStatusBar } from './ui-helpers';
 import { updateBrowserBounds, setBrowserLoaded } from './browser-helpers';
+import { showProjectModal, setupResizers, addConsoleMessage, updateConsoleUI, updateConsoleDrawer } from './panels';
 import {
   state,
   updateState,
   consoleBuffer,
-  addConsoleMessage as stateAddConsoleMessage,
   addSelectedElement as stateAddSelectedElement,
   removeSelectedElement as stateRemoveSelectedElement,
   clearSelectedElements,
@@ -35,8 +35,6 @@ import {
   clearInspectSequence,
   addCapturedToast,
   clearCapturedToasts,
-  DRAWER_HEIGHT,
-  type ConsoleMessage,
 } from './state';
 import {
   // Header
@@ -92,8 +90,6 @@ import {
   // Console Drawer
   consoleToggleBtn,
   consoleDrawer,
-  consoleDrawerMessages,
-  consoleDrawerCount,
   consoleClearBtn,
   consoleSendBtn,
   // Inspect Sequence
@@ -127,9 +123,6 @@ import {
   toastCount,
   clearToastsBtn,
   sendToastsBtn,
-  // Resizers
-  resizer1,
-  resizer2,
   // Copy Buttons
   copySelectorBtn,
   copyComponentBtn,
@@ -141,129 +134,7 @@ import {
 // State is managed by the state module - all state accessed via state.* getters
 // and modified via updateState() or helper functions
 // Browser helpers (updateBrowserBounds, setBrowserLoaded) imported from ./browser-helpers
-
-// Show project modal when a project is detected
-function showProjectModal(project: ProjectInfo) {
-  // Remove existing modal if any
-  const existing = document.querySelector('.project-modal');
-  if (existing) existing.remove();
-
-  // Hide BrowserView so modal appears on top (BrowserView is a native element that renders above HTML)
-  window.claudeLens.browser.setVisible(false);
-
-  const modal = document.createElement('div');
-  modal.className = 'project-modal';
-
-  const content = document.createElement('div');
-  content.className = 'project-modal-content';
-
-  const title = document.createElement('h2');
-  title.textContent = `Open Project: ${project.name}`;
-  content.appendChild(title);
-
-  const info = document.createElement('div');
-  info.className = 'project-info';
-
-  const typeLabel = project.type === 'node' ? 'Node.js' : project.type === 'static' ? 'Static HTML' : 'Unknown';
-  const typeP = document.createElement('p');
-  const typeStrong = document.createElement('strong');
-  typeStrong.textContent = 'Type: ';
-  typeP.appendChild(typeStrong);
-  typeP.appendChild(document.createTextNode(typeLabel));
-  info.appendChild(typeP);
-
-  if (project.framework && project.framework !== 'unknown') {
-    const frameworkP = document.createElement('p');
-    const frameworkStrong = document.createElement('strong');
-    frameworkStrong.textContent = 'Framework: ';
-    frameworkP.appendChild(frameworkStrong);
-    const frameworkLabel = project.framework.charAt(0).toUpperCase() + project.framework.slice(1);
-    frameworkP.appendChild(document.createTextNode(frameworkLabel));
-    info.appendChild(frameworkP);
-  }
-
-  if (project.suggestedPort) {
-    const portP = document.createElement('p');
-    const portStrong = document.createElement('strong');
-    portStrong.textContent = 'Port: ';
-    portP.appendChild(portStrong);
-    portP.appendChild(document.createTextNode(String(project.suggestedPort)));
-    info.appendChild(portP);
-  }
-
-  const pathP = document.createElement('p');
-  pathP.className = 'project-path';
-  const pathStrong = document.createElement('strong');
-  pathStrong.textContent = 'Path: ';
-  pathP.appendChild(pathStrong);
-  const pathCode = document.createElement('code');
-  pathCode.textContent = project.path;
-  pathP.appendChild(pathCode);
-  info.appendChild(pathP);
-  content.appendChild(info);
-
-  const buttons = document.createElement('div');
-  buttons.className = 'project-buttons';
-
-  if (project.devCommand) {
-    const devBtn = document.createElement('button');
-    devBtn.className = 'btn btn-primary';
-    devBtn.textContent = `Start with ${project.devCommand}`;
-    devBtn.addEventListener('click', async () => {
-      devBtn.disabled = true;
-      devBtn.textContent = 'Starting...';
-      // Update status bar state
-      updateState({ currentProjectName: project.name, currentServerType: 'dev' });
-      updateStatusBar();
-      const result = await window.claudeLens.project.start({ useDevServer: true });
-      modal.remove();
-      // Restore BrowserView visibility
-      window.claudeLens.browser.setVisible(true);
-      if (result.success && result.url) {
-        console.log('[Viewport] Browser loaded, updating bounds');
-        setBrowserLoaded(result.url);
-      } else {
-        alert(`Failed to start dev server: ${result.error}`);
-      }
-    });
-    buttons.appendChild(devBtn);
-  }
-
-  const staticBtn = document.createElement('button');
-  staticBtn.className = project.devCommand ? 'btn btn-secondary' : 'btn btn-primary';
-  staticBtn.textContent = 'Use Built-in Server';
-  staticBtn.addEventListener('click', async () => {
-    staticBtn.disabled = true;
-    staticBtn.textContent = 'Starting...';
-    // Update status bar state
-    updateState({ currentProjectName: project.name, currentServerType: 'static' });
-    updateStatusBar();
-    const result = await window.claudeLens.project.start({ useDevServer: false });
-    modal.remove();
-    // Restore BrowserView visibility
-    window.claudeLens.browser.setVisible(true);
-    if (result.success && result.url) {
-      setBrowserLoaded(result.url);
-    } else {
-      alert(`Failed to start server: ${result.error}`);
-    }
-  });
-  buttons.appendChild(staticBtn);
-
-  const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'btn btn-ghost';
-  cancelBtn.textContent = 'Cancel';
-  cancelBtn.addEventListener('click', () => {
-    modal.remove();
-    // Restore BrowserView visibility
-    window.claudeLens.browser.setVisible(true);
-  });
-  buttons.appendChild(cancelBtn);
-
-  content.appendChild(buttons);
-  modal.appendChild(content);
-  document.body.appendChild(modal);
-}
+// Project modal (showProjectModal) imported from ./panels
 
 // Initialize
 async function init() {
@@ -605,150 +476,6 @@ async function updateProjectDropdown() {
   }
 }
 
-// Default panel widths
-const DEFAULT_CLAUDE_WIDTH = 400;
-const MIN_PANEL_WIDTH = 300;
-
-// Panel resizers for three-column layout
-function setupResizers() {
-  // Restore saved widths from localStorage
-  restorePanelWidths();
-
-  setupResizer(resizer1, 'browser-panel', 'left');
-  setupResizer(resizer2, 'claude-panel', 'right');
-}
-
-// Save panel widths to localStorage
-function savePanelWidths() {
-  const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
-  const claudePanel = document.querySelector('.claude-panel') as HTMLElement;
-
-  const browserWidth = browserPanel.style.flex.includes('px')
-    ? parseInt(browserPanel.style.flex.match(/(\d+)px/)?.[1] || '0')
-    : 0;
-  const claudeWidth = claudePanel.style.flex.includes('px')
-    ? parseInt(claudePanel.style.flex.match(/(\d+)px/)?.[1] || '0')
-    : 0;
-
-  localStorage.setItem('claude-lens-panel-widths', JSON.stringify({
-    browser: browserWidth,
-    claude: claudeWidth
-  }));
-}
-
-// Restore panel widths from localStorage
-function restorePanelWidths() {
-  try {
-    const saved = localStorage.getItem('claude-lens-panel-widths');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-
-      // Validate structure before destructuring
-      if (typeof parsed !== 'object' || parsed === null) {
-        return;
-      }
-
-      const { browser, claude } = parsed;
-      const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
-      const claudePanel = document.querySelector('.claude-panel') as HTMLElement;
-
-      // Validate types before using
-      if (typeof browser === 'number' && browser > 0) {
-        browserPanel.style.flex = `0 0 ${browser}px`;
-      }
-      if (typeof claude === 'number' && claude > 0) {
-        claudePanel.style.flex = `0 0 ${claude}px`;
-      }
-    }
-  } catch (error) {
-    console.warn('[PanelWidths] Failed to restore saved widths:', error);
-    // Clear corrupted data
-    try {
-      localStorage.removeItem('claude-lens-panel-widths');
-    } catch {
-      // localStorage inaccessible
-    }
-  }
-}
-
-// Reset panel widths to defaults
-function resetPanelWidths() {
-  const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
-  const claudePanel = document.querySelector('.claude-panel') as HTMLElement;
-
-  browserPanel.style.flex = '1';
-  claudePanel.style.flex = `0 0 ${DEFAULT_CLAUDE_WIDTH}px`;
-
-  localStorage.removeItem('claude-lens-panel-widths');
-
-  // Update browser bounds and terminal
-  const drawerHeight = state.consoleDrawerOpen ? DRAWER_HEIGHT : 0;
-  window.claudeLens.browser.updateBounds(0, drawerHeight);
-  fitAddon.fit();
-  terminal.refresh(0, terminal.rows - 1);
-  if (state.claudeRunning) {
-    window.claudeLens.pty.resize(terminal.cols, terminal.rows);
-  }
-}
-
-function setupResizer(resizer: HTMLElement, panelClass: string, side: 'left' | 'right') {
-  let isResizing = false;
-
-  // Double-click to reset panel widths
-  resizer.addEventListener('dblclick', () => {
-    resetPanelWidths();
-  });
-
-  resizer.addEventListener('mousedown', (e) => {
-    isResizing = true;
-    e.preventDefault();
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!isResizing) return;
-
-    const panel = document.querySelector(`.${panelClass}`) as HTMLElement;
-    const main = document.querySelector('.main') as HTMLElement;
-    const mainRect = main.getBoundingClientRect();
-
-    if (side === 'left') {
-      const newWidth = e.clientX - mainRect.left;
-      // Ensure minimum widths: browser panel + context panel + claude panel
-      if (newWidth >= MIN_PANEL_WIDTH && newWidth < mainRect.width - MIN_PANEL_WIDTH * 2) {
-        panel.style.flex = `0 0 ${newWidth}px`;
-        const drawerHeight = state.consoleDrawerOpen ? DRAWER_HEIGHT : 0;
-        // Apply viewport constraint to resize
-        const effectiveWidth = state.viewportWidth > 0 ? Math.min(state.viewportWidth, newWidth) : newWidth;
-        window.claudeLens.browser.updateBounds(effectiveWidth, drawerHeight);
-      }
-    } else {
-      const newWidth = mainRect.right - e.clientX;
-      // Ensure minimum widths for claude panel and remaining space
-      if (newWidth >= MIN_PANEL_WIDTH && newWidth < mainRect.width - MIN_PANEL_WIDTH * 2) {
-        panel.style.flex = `0 0 ${newWidth}px`;
-      }
-    }
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (isResizing) {
-      isResizing = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      // Save panel widths to localStorage
-      savePanelWidths();
-      fitAddon.fit();
-      // Force terminal refresh to clear rendering artifacts after panel resize
-      terminal.refresh(0, terminal.rows - 1);
-      if (state.claudeRunning) {
-        window.claudeLens.pty.resize(terminal.cols, terminal.rows);
-      }
-    }
-  });
-}
-
 // Add selected element to context panel
 function addSelectedElement(element: ElementInfo) {
   // Add to list if not already selected (delegate to state helper)
@@ -1077,56 +804,6 @@ function removeElement(selector: string) {
       updateContextPanel(lastElement);
     }
   }
-}
-
-// Console message handling - CircularBuffer handles overflow automatically (O(1))
-function addConsoleMessage(msg: ConsoleMessage) {
-  stateAddConsoleMessage(msg);
-  updateConsoleUI();
-}
-
-function updateConsoleUI() {
-  // Update drawer count and content
-  consoleDrawerCount.textContent = String(consoleBuffer.length);
-  updateConsoleDrawer();
-}
-
-function updateConsoleDrawer() {
-  consoleDrawerMessages.textContent = '';
-
-  if (consoleBuffer.length === 0) {
-    const emptyState = document.createElement('div');
-    emptyState.className = 'empty-state';
-    emptyState.textContent = 'No console messages';
-    consoleDrawerMessages.appendChild(emptyState);
-    return;
-  }
-
-  for (const msg of consoleBuffer) {
-    const row = document.createElement('div');
-    row.className = 'console-drawer-message';
-
-    const levelSpan = document.createElement('span');
-    levelSpan.className = `console-drawer-level ${msg.level}`;
-    levelSpan.textContent = msg.level.toUpperCase();
-
-    const textSpan = document.createElement('span');
-    textSpan.className = 'console-drawer-text';
-    textSpan.textContent = msg.message;
-
-    const timeSpan = document.createElement('span');
-    timeSpan.className = 'console-drawer-time';
-    const time = new Date(msg.timestamp);
-    timeSpan.textContent = time.toLocaleTimeString();
-
-    row.appendChild(levelSpan);
-    row.appendChild(textSpan);
-    row.appendChild(timeSpan);
-    consoleDrawerMessages.appendChild(row);
-  }
-
-  // Auto-scroll to bottom
-  consoleDrawerMessages.scrollTop = consoleDrawerMessages.scrollHeight;
 }
 
 // Update inspect sequence UI (Phase 2)

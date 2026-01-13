@@ -21,6 +21,8 @@ import {
 import { TERMINAL_OPTIONS, substituteChars } from './terminal';
 import { debounce, waitForFonts, runFontDiagnostics, copyToClipboard } from './utils';
 import { VIEWPORT_PRESETS } from './handlers';
+import { setStatus, showThinking, hideThinking, updateStatusBar } from './ui-helpers';
+import { updateBrowserBounds, setBrowserLoaded } from './browser-helpers';
 import {
   state,
   updateState,
@@ -42,7 +44,6 @@ import {
   goBtn,
   refreshBtn,
   restartServerBtn,
-  statusEl,
   viewportSelect,
   projectDropdown,
   // Panels
@@ -132,13 +133,8 @@ import {
   // Copy Buttons
   copySelectorBtn,
   copyComponentBtn,
-  // Thinking Indicator
-  thinkingIndicator,
-  // Enhanced Status Bar
-  projectStatus,
+  // Status Bar (serverStatus for click handler)
   serverStatus,
-  playwrightStatus,
-  viewportStatus,
 } from './setup';
 
 // Terminal setup - configuration from terminal module
@@ -153,43 +149,7 @@ terminal.unicode.activeVersion = '11';
 
 // State is managed by the state module - all state accessed via state.* getters
 // and modified via updateState() or helper functions
-
-/**
- * Update browser bounds with viewport constraint
- * Call this whenever panel size changes or viewport preset changes
- */
-function updateBrowserBounds() {
-  const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
-  const drawerHeight = state.consoleDrawerOpen ? DRAWER_HEIGHT : 0;
-
-  // Apply viewport width constraint
-  const panelWidth = browserPanel.offsetWidth;
-  const effectiveWidth = state.viewportWidth > 0 ? Math.min(state.viewportWidth, panelWidth) : panelWidth;
-
-  console.log('[Viewport] updateBrowserBounds:', { viewportWidth: state.viewportWidth, panelWidth, effectiveWidth, drawerHeight });
-
-  // Pass both panelWidth and effectiveWidth so main can center the browser
-  window.claudeLens.browser.updateBounds(effectiveWidth, drawerHeight, panelWidth);
-}
-
-/**
- * Set browser as loaded and update UI state
- * Consolidates all the state changes needed when browser content is ready
- */
-function setBrowserLoaded(url?: string) {
-  updateState({ browserLoaded: true });
-  refreshBtn.disabled = false;
-  restartServerBtn.disabled = false;
-  placeholder.classList.add('hidden');
-  setStatus('Connected', true);
-  browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
-  if (url) {
-    urlInput.value = url;
-  }
-  updateBrowserBounds();
-}
-
-// Console buffer is now imported from state module
+// Browser helpers (updateBrowserBounds, setBrowserLoaded) imported from ./browser-helpers
 
 // Show project modal when a project is detected
 function showProjectModal(project: ProjectInfo) {
@@ -404,11 +364,7 @@ async function init() {
   window.claudeLens.pty.onData((data) => {
     // Hide thinking indicator when we receive output from Claude
     if (state.isThinking) {
-      if (state.thinkingTimeout) {
-        clearTimeout(state.thinkingTimeout);
-      }
-      updateState({ isThinking: false, thinkingTimeout: null });
-      thinkingIndicator.classList.add('hidden');
+      hideThinking();
     }
     // Substitute missing characters and enhance MCP output
     const processed = substituteChars(data);
@@ -2009,71 +1965,6 @@ copySourceBtn.addEventListener('click', () => {
     copyToClipboard(source, copySourceBtn, setStatus);
   }
 });
-
-
-// Status helper
-function setStatus(text: string, connected = false) {
-  statusEl.textContent = text;
-  statusEl.className = connected ? 'status connected' : 'status';
-}
-
-// Thinking indicator helper
-function showThinking(): void {
-  // Show thinking indicator after a brief delay (500ms)
-  // This prevents flashing for instant responses
-  if (state.thinkingTimeout) clearTimeout(state.thinkingTimeout);
-  const timeout = setTimeout(() => {
-    updateState({ isThinking: true });
-    thinkingIndicator.classList.remove('hidden');
-  }, 500);
-  updateState({ thinkingTimeout: timeout });
-}
-
-function hideThinking(): void {
-  if (state.thinkingTimeout) {
-    clearTimeout(state.thinkingTimeout);
-  }
-  updateState({ thinkingTimeout: null, isThinking: false });
-  thinkingIndicator.classList.add('hidden');
-}
-
-// Status bar update helper
-function updateStatusBar(): void {
-  // Project name
-  if (state.currentProjectName) {
-    projectStatus.textContent = state.currentProjectName;
-    projectStatus.classList.remove('hidden');
-  } else {
-    projectStatus.classList.add('hidden');
-  }
-
-  // Server status
-  if (state.currentServerPort > 0) {
-    const typeLabel = state.currentServerType === 'dev' ? 'Dev' : 'Static';
-    serverStatus.textContent = `${typeLabel} :${state.currentServerPort}`;
-    serverStatus.classList.remove('hidden');
-  } else {
-    serverStatus.classList.add('hidden');
-  }
-
-  // Playwright status
-  if (state.browserLoaded) {
-    playwrightStatus.textContent = state.playwrightConnected ? '✓ Playwright' : '○ Playwright';
-    playwrightStatus.classList.toggle('success', state.playwrightConnected);
-    playwrightStatus.classList.toggle('warning', !state.playwrightConnected);
-    playwrightStatus.classList.remove('hidden');
-  } else {
-    playwrightStatus.classList.add('hidden');
-  }
-
-  // Viewport status
-  if (state.viewportWidth > 0) {
-    viewportStatus.textContent = `${state.viewportWidth}px`;
-    viewportStatus.classList.remove('hidden');
-  } else {
-    viewportStatus.classList.add('hidden');
-  }
-}
 
 // Server status click handler - copy URL to clipboard
 serverStatus.addEventListener('click', async () => {

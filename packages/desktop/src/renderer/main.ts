@@ -290,6 +290,8 @@ async function init() {
   terminal.attachCustomKeyEventHandler((e) => {
     // Ctrl+Shift+V - check for image paste
     if (e.ctrlKey && e.shiftKey && (e.key === 'v' || e.key === 'V') && e.type === 'keydown') {
+      // Prevent browser's native paste from also triggering (causes double paste)
+      e.preventDefault();
       // Handle async image check
       (async () => {
         if (!state.claudeRunning) return;
@@ -328,6 +330,7 @@ async function init() {
     if (e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C') && e.type === 'keydown') {
       const selection = terminal.getSelection();
       if (selection) {
+        e.preventDefault();
         navigator.clipboard.writeText(selection).then(() => {
           setStatus('Copied to clipboard');
           setTimeout(() => {

@@ -51,6 +51,13 @@ packages/
 ├── desktop/             # Electron desktop app
 │   ├── main/           # Electron main process
 │   └── renderer/       # UI (BrowserView + Terminal)
+│       ├── utils/      # DOM utilities, debounce, fonts
+│       ├── state/      # Centralized state management
+│       ├── terminal/   # Terminal config and substitution
+│       ├── panels/     # Panel UI helpers
+│       ├── components/ # Status bar utilities
+│       ├── handlers/   # Navigation utilities
+│       └── __tests__/  # Unit tests (87 tests)
 │
 ├── vscode-extension/    # VS Code extension
 │   └── src/            # Extension + Webview

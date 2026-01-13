@@ -11,7 +11,6 @@ import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { SearchAddon } from '@xterm/addon-search';
-import { CircularBuffer } from '@claude-lens/core';
 import 'xterm/css/xterm.css';
 import {
   formatElements,
@@ -19,93 +18,15 @@ import {
   formatConsole,
   type ContextMode,
 } from './context-formatter';
+import { TERMINAL_OPTIONS, substituteChars } from './terminal';
+import { debounce, waitForFonts, runFontDiagnostics, getEl, copyToClipboard } from './utils';
+import { VIEWPORT_PRESETS } from './handlers';
 import {
-  MCP_TOOL_ICONS,
-  CHAR_SUBSTITUTIONS,
-  MCP_INDICATORS,
-} from './constants/mcp-tool-icons';
-
-/**
- * Simple debounce utility - delays function execution until after wait ms of inactivity
- */
-function debounce<T extends (...args: unknown[]) => unknown>(fn: T, wait: number): (...args: Parameters<T>) => void {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  return (...args: Parameters<T>) => {
-    if (timeoutId) clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => fn(...args), wait);
-  };
-}
-
-/**
- * Wait for fonts to load before opening terminal
- * Based on Tabby terminal's approach: https://github.com/Eugeny/tabby
- *
- * xterm.js measures fonts during terminal.open() and caches the measurements.
- * If the font isn't loaded yet, it measures fallback fonts and icons won't render.
- */
-async function waitForFonts(fontFamily: string, timeoutMs = 3000): Promise<void> {
-  const startTime = Date.now();
-
-  // Extract all font names from the stack
-  const fontNames = fontFamily.split(',').map(f => f.trim().replace(/['"]/g, '')).filter(f => f && f !== 'monospace');
-
-  // Request all fonts to load (silently)
-  for (const font of fontNames) {
-    try {
-      await document.fonts.load(`13px "${font}"`);
-    } catch {
-      // Font load failed, will use fallback
-    }
-  }
-
-  // Wait for all fonts to be ready
-  await document.fonts.ready;
-
-  // Check each font, only warn if missing
-  const missingFonts: string[] = [];
-  for (const font of fontNames) {
-    let fontAvailable = document.fonts.check(`13px "${font}"`);
-
-    // Poll if not yet available
-    while (!fontAvailable && (Date.now() - startTime) < timeoutMs) {
-      await new Promise(r => setTimeout(r, 100));
-      fontAvailable = document.fonts.check(`13px "${font}"`);
-    }
-
-    if (!fontAvailable) {
-      missingFonts.push(font);
-    }
-  }
-
-  if (missingFonts.length > 0) {
-    console.warn(`Fonts not available: ${missingFonts.join(', ')}`);
-  }
-
-  // Additional delay for font rendering to settle
-  await new Promise(r => setTimeout(r, 500));
-}
-
-/**
- * Font diagnostics - only logs warnings if something is wrong
- */
-function runFontDiagnostics(): void {
-  const criticalFonts = [
-    'JetBrains Mono NF Bundled',
-    'Symbols Nerd Font',
-    'Noto Sans Symbols 2',
-  ];
-
-  // Check font availability - only warn if missing
-  const missingFonts = criticalFonts.filter(font => !document.fonts.check(`13px "${font}"`));
-
-  if (missingFonts.length > 0) {
-    console.warn('Missing fonts:', missingFonts.join(', '));
-  }
-}
-
-// Type-safe getElementById helper
-const getEl = <T extends HTMLElement>(id: string): T =>
-  document.getElementById(id) as T;
+  consoleBuffer,
+  addConsoleMessage as stateAddConsoleMessage,
+  DRAWER_HEIGHT,
+  type ConsoleMessage,
+} from './state';
 
 // Elements - Header
 const urlInput = getEl<HTMLInputElement>('urlInput');
@@ -223,27 +144,8 @@ const serverStatus = getEl<HTMLSpanElement>('serverStatus');
 const playwrightStatus = getEl<HTMLSpanElement>('playwrightStatus');
 const viewportStatus = getEl<HTMLSpanElement>('viewportStatus');
 
-// Terminal setup with optimized scrollback buffer
-// Font stack: Main font -> Symbols font for icons -> System fonts for standard Unicode symbols
-const terminal = new Terminal({
-  theme: {
-    background: '#1e1e1e',
-    foreground: '#cccccc',
-    cursor: '#cccccc',
-    selectionBackground: '#264f78',
-  },
-  // Complete font stack:
-  // 1. JetBrains Mono NF - main text + some icons
-  // 2. Symbols Nerd Font - Nerd Font icons
-  // 3. Noto Sans Symbols 2 - Unicode symbols (U+23F5 play buttons for Claude Code checkboxes)
-  // 4. System symbol fonts - standard Unicode symbols
-  // 5. monospace - final fallback
-  fontFamily: "'JetBrains Mono NF Bundled', 'Symbols Nerd Font', 'Noto Sans Symbols 2', 'Segoe UI Symbol', 'Apple Symbols', monospace",
-  fontSize: 13,
-  cursorBlink: true,
-  allowProposedApi: true,
-  scrollback: 5000, // Limit scrollback to control memory usage
-});
+// Terminal setup - configuration from terminal module
+const terminal = new Terminal(TERMINAL_OPTIONS);
 
 const fitAddon = new FitAddon();
 const unicode11Addon = new Unicode11Addon();
@@ -252,36 +154,21 @@ terminal.loadAddon(new WebLinksAddon());
 terminal.loadAddon(unicode11Addon);
 terminal.unicode.activeVersion = '11';
 
-// State
+// State is now managed by the state module
+// Local references for backward compatibility during refactor
+// These will be removed in Phase 7 integration
+let selectedElements: ElementInfo[] = [];
+let inspectSequence: CapturedInteraction[] = [];
+let capturedToasts: ToastCapture[] = [];
 let claudeRunning = false;
 let browserLoaded = false;
 let inspectMode = false;
-let selectedElements: ElementInfo[] = [];
 let consoleDrawerOpen = false;
-
-// Context mode: 'lean' (optimized for Claude efficiency) or 'detailed' (full info)
 let contextMode: ContextMode = 'lean';
-
-// Inspect sequence state (Phase 2: multi-click capture)
-let inspectSequence: CapturedInteraction[] = [];
-
-// Freeze hover state (Phase 3)
 let hoverFrozen = false;
-
-// Captured toasts state (Phase 4)
-let capturedToasts: ToastCapture[] = [];
-
-// Claude thinking state - shown when waiting for response
 let isThinking = false;
 let thinkingTimeout: ReturnType<typeof setTimeout> | null = null;
-
-// Console drawer height - 200px CSS + extra buffer for BrowserView bounds
-const DRAWER_HEIGHT = 235;
-
-// Viewport width constraint (0 = full width)
 let viewportWidth = 0;
-
-// Status bar state
 let currentProjectName = '';
 let currentServerPort = 0;
 let currentServerType: 'dev' | 'static' | null = null;
@@ -322,14 +209,7 @@ function setBrowserLoaded(url?: string) {
   updateBrowserBounds();
 }
 
-// Console message buffer (last 50 messages)
-interface ConsoleMessage {
-  level: string;
-  message: string;
-  timestamp: number;
-}
-const MAX_CONSOLE_MESSAGES = 50;
-const consoleBuffer = new CircularBuffer<ConsoleMessage>(MAX_CONSOLE_MESSAGES);
+// Console buffer is now imported from state module
 
 // Show project modal when a project is detected
 function showProjectModal(project: ProjectInfo) {
@@ -542,43 +422,7 @@ async function init() {
     terminal.refresh(0, terminal.rows - 1);
   }, 500);
 
-  // Smart substitution: detect MCP patterns and use semantic icons
-  // Constants imported from ./constants/mcp-tool-icons.ts
-  const substituteChars = (data: string): string => {
-    let result = data;
-
-    // For each MCP indicator character, check if it's followed by a known pattern
-    for (const indicator of MCP_INDICATORS) {
-      if (!result.includes(indicator)) continue;
-
-      // Find all occurrences of the indicator
-      const regex = new RegExp(indicator + '\\s*(.{0,50})', 'g');
-      result = result.replace(regex, (match, afterIndicator) => {
-        // Check each MCP tool pattern
-        for (const tool of MCP_TOOL_ICONS) {
-          if (tool.pattern.test(afterIndicator)) {
-            // Replace indicator with semantic icon, optionally transform text
-            const displayText = tool.transform || afterIndicator;
-            return tool.icon + ' ' + displayText;
-          }
-        }
-        // Fallback: use basic substitution
-        const fallback = CHAR_SUBSTITUTIONS[indicator] || indicator;
-        return fallback + ' ' + afterIndicator;
-      });
-    }
-
-    // Also do basic substitution for any remaining characters
-    for (const [from, to] of Object.entries(CHAR_SUBSTITUTIONS)) {
-      if (result.includes(from)) {
-        result = result.replaceAll(from, to);
-      }
-    }
-
-    return result;
-  };
-
-  // PTY data handler
+  // PTY data handler (substituteChars imported from terminal module)
   window.claudeLens.pty.onData((data) => {
     // Hide thinking indicator when we receive output from Claude
     if (isThinking) {
@@ -1311,7 +1155,7 @@ function removeElement(selector: string) {
 
 // Console message handling - CircularBuffer handles overflow automatically (O(1))
 function addConsoleMessage(msg: ConsoleMessage) {
-  consoleBuffer.push(msg);
+  stateAddConsoleMessage(msg);
   updateConsoleUI();
 }
 
@@ -1822,17 +1666,7 @@ restartServerBtn.addEventListener('click', async () => {
   // Button will be re-enabled when server:ready fires
 });
 
-// Viewport preset widths (0 = full width / no constraint)
-const VIEWPORT_PRESETS: Record<string, number> = {
-  'full': 0,
-  'desktop': 1280,
-  'tablet-landscape': 1024,
-  'tablet': 768,
-  'mobile-large': 425,
-  'mobile': 375,
-};
-
-// Viewport preset change handler
+// Viewport preset change handler (VIEWPORT_PRESETS imported from ./handlers)
 viewportSelect.addEventListener('change', () => {
   const preset = viewportSelect.value;
   viewportWidth = VIEWPORT_PRESETS[preset] || 0;
@@ -2168,32 +2002,11 @@ contextModeSelect.addEventListener('change', () => {
   contextMode = contextModeSelect.value as ContextMode;
 });
 
-// Copy to clipboard helper with visual feedback
-async function copyToClipboard(text: string, button: HTMLButtonElement): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-    button.classList.add('copied');
-    // Swap icon to checkmark temporarily
-    const originalSvg = button.innerHTML;
-    button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="20 6 9 17 4 12"></polyline>
-    </svg>`;
-    setStatus('Copied!', true);
-    setTimeout(() => {
-      button.classList.remove('copied');
-      button.innerHTML = originalSvg;
-    }, 1500);
-  } catch (err) {
-    console.error('Failed to copy:', err);
-    setStatus('Copy failed');
-  }
-}
-
 // Copy selector button
 copySelectorBtn.addEventListener('click', () => {
   const selector = elementPath.textContent;
   if (selector) {
-    copyToClipboard(selector, copySelectorBtn);
+    copyToClipboard(selector, copySelectorBtn, setStatus);
   }
 });
 
@@ -2207,7 +2020,7 @@ copyComponentBtn.addEventListener('click', () => {
     if (comp?.source) {
       copyText += `\n${comp.source.fileName}:${comp.source.lineNumber}`;
     }
-    copyToClipboard(copyText, copyComponentBtn);
+    copyToClipboard(copyText, copyComponentBtn, setStatus);
   }
 });
 
@@ -2215,7 +2028,7 @@ copyComponentBtn.addEventListener('click', () => {
 copySourceBtn.addEventListener('click', () => {
   const source = sourceLocation.textContent;
   if (source) {
-    copyToClipboard(source, copySourceBtn);
+    copyToClipboard(source, copySourceBtn, setStatus);
   }
 });
 

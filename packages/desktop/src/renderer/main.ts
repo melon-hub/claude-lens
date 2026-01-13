@@ -17,6 +17,7 @@ import {
   terminal,
   fitAddon,
   substituteChars,
+  setupContextMenu,
 } from './terminal';
 import { debounce, waitForFonts, runFontDiagnostics, copyToClipboard } from './utils';
 import { VIEWPORT_PRESETS } from './handlers';
@@ -1967,127 +1968,8 @@ serverStatus.addEventListener('click', async () => {
   }
 });
 
-// Terminal context menu for copy/paste
-let contextMenu: HTMLDivElement | null = null;
-
-function hideContextMenu() {
-  if (contextMenu) {
-    contextMenu.remove();
-    contextMenu = null;
-  }
-}
-
-terminalEl.addEventListener('contextmenu', (e) => {
-  e.preventDefault();
-  hideContextMenu();
-
-  const hasSelection = terminal.hasSelection();
-
-  contextMenu = document.createElement('div');
-  contextMenu.className = 'terminal-context-menu';
-  contextMenu.style.cssText = `
-    position: fixed;
-    left: ${e.clientX}px;
-    top: ${e.clientY}px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 4px 0;
-    min-width: 120px;
-    z-index: 10000;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  `;
-
-  // Copy option
-  const copyItem = document.createElement('div');
-  copyItem.className = 'context-menu-item';
-  copyItem.innerHTML = `<span>Copy</span><span style="color: var(--text-muted); font-size: 11px;">Ctrl+Shift+C</span>`;
-  copyItem.style.cssText = `
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 6px 12px;
-    cursor: ${hasSelection ? 'pointer' : 'default'};
-    opacity: ${hasSelection ? '1' : '0.5'};
-    font-size: 12px;
-  `;
-  if (hasSelection) {
-    copyItem.addEventListener('mouseenter', () => {
-      copyItem.style.background = 'var(--bg-hover)';
-    });
-    copyItem.addEventListener('mouseleave', () => {
-      copyItem.style.background = '';
-    });
-    copyItem.addEventListener('click', async () => {
-      const selection = terminal.getSelection();
-      if (selection) {
-        await navigator.clipboard.writeText(selection);
-        setStatus('Copied to clipboard');
-        setTimeout(() => {
-          if (state.browserLoaded) setStatus('Connected', true);
-        }, 2000);
-      }
-      hideContextMenu();
-    });
-  }
-  contextMenu.appendChild(copyItem);
-
-  // Paste option
-  const pasteItem = document.createElement('div');
-  pasteItem.className = 'context-menu-item';
-  pasteItem.innerHTML = `<span>Paste</span><span style="color: var(--text-muted); font-size: 11px;">Ctrl+Shift+V</span>`;
-  pasteItem.style.cssText = `
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 6px 12px;
-    cursor: ${state.claudeRunning ? 'pointer' : 'default'};
-    opacity: ${state.claudeRunning ? '1' : '0.5'};
-    font-size: 12px;
-  `;
-  if (state.claudeRunning) {
-    pasteItem.addEventListener('mouseenter', () => {
-      pasteItem.style.background = 'var(--bg-hover)';
-    });
-    pasteItem.addEventListener('mouseleave', () => {
-      pasteItem.style.background = '';
-    });
-    pasteItem.addEventListener('click', async () => {
-      hideContextMenu();
-      // Check for image first
-      const hasImage = await window.claudeLens.clipboard.hasImage();
-      if (hasImage) {
-        setStatus('Saving image...');
-        const result = await window.claudeLens.clipboard.saveImage();
-        if (result.success && result.path) {
-          window.claudeLens.pty.write(`@${result.path} `);
-          setStatus('Image pasted', true);
-          setTimeout(() => {
-            if (state.browserLoaded) setStatus('Connected', true);
-          }, 2000);
-        } else {
-          setStatus(`Image error: ${result.error}`);
-        }
-      } else {
-        // Paste text via IPC (avoids "document not focused" error)
-        const text = await window.claudeLens.clipboard.readText();
-        if (text) {
-          window.claudeLens.pty.write(text);
-        }
-      }
-      terminal.focus();
-    });
-  }
-  contextMenu.appendChild(pasteItem);
-
-  document.body.appendChild(contextMenu);
-});
-
-// Hide context menu on click elsewhere or escape
-document.addEventListener('click', hideContextMenu);
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') hideContextMenu();
-});
+// Terminal context menu - extracted to terminal/context-menu.ts
+setupContextMenu(terminalEl);
 
 // Initialize on load
 init();

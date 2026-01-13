@@ -26,3 +26,6 @@ export {
   getSelection,
   hasSelection,
 } from './manager';
+
+// Context menu
+export { setupContextMenu, showContextMenu, hideContextMenu } from './context-menu';

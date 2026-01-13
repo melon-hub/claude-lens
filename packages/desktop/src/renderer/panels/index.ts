@@ -37,3 +37,6 @@ export {
 
 // Inspect sequence
 export { updateInspectSequenceUI, clearInspectSequenceUI } from './inspect-sequence';
+
+// Form state
+export { updateFormStateUI } from './form-state';

@@ -40,3 +40,6 @@ export { updateInspectSequenceUI, clearInspectSequenceUI } from './inspect-seque
 
 // Form state
 export { updateFormStateUI } from './form-state';
+
+// Phase 4 UI
+export { updatePhase4UI, updateToastCapturesUI, clearToastCaptures } from './phase4-ui';

@@ -17,48 +17,36 @@
 
 ---
 
-## What is Claude Lens?
-
-**Claude Lens is a visual web development companion for Claude Code.** It bridges what you *see* in your browser with what Claude *knows* about your code.
-
-Instead of copying selectors and describing elements, you just **click on them**. Claude sees the element details, component info, and styles instantly - all while keeping your conversation context.
-
-### The 30-Second Pitch
+## Why Claude Lens?
 
 ```
 You: *Ctrl+clicks a misaligned button*
-
-Claude: I see that button. It has margin-left: 20px, the parent is flex but not centered.
-        Want me to fix it?
+Claude: margin-left: 20px, parent flex not centered. Fix it?
 
 You: Yes, and make it match this one *Ctrl+clicks header button*
-
-Claude: Got it - applying the header button's padding, border-radius, and font-weight.
-        Done. Check it out.
+Claude: Done - applied header button's padding and border-radius.
 ```
 
-**That conversation is impossible with other tools.** They either lose context between clicks or can't do visual selection at all.
+**Other tools make you choose:** visual selection OR conversation context.
+
+| Tool | Click to Select | Keeps Context | The Catch |
+|------|:---------------:|:-------------:|-----------|
+| React Grab | ✅ | ❌ | New session each click |
+| browser-use | ✅ | ❌ | Per-task, not conversational |
+| Playwright MCP | ❌ | ✅ | Must know selectors |
+| DevTools MCP | ❌ | ✅ | No visual picking |
+| **Claude Lens** | ✅ | ✅ | **Both** |
 
 ---
 
 ## Quick Start
 
-### Prerequisites
-- Node.js 18+
-- pnpm 8+
-
-### Install & Run
-
 ```bash
 git clone https://github.com/melon-hub/claude-lens.git
 cd claude-lens
-pnpm install
-pnpm run build
-cd packages/desktop
-pnpm run dev
+pnpm install && pnpm run build
+cd packages/desktop && pnpm run dev
 ```
-
-### Connect to Claude Code
 
 Add to `~/.claude/settings.json`:
 
@@ -72,34 +60,6 @@ Add to `~/.claude/settings.json`:
   }
 }
 ```
-
-That's it! Open the app, navigate to your localhost dev server, and start clicking elements.
-
----
-
-## Why Claude Lens?
-
-### The Problem
-
-You're debugging a frontend issue. You can *see* the bug - the button is misaligned, the card has wrong padding. Now you need to explain it to Claude:
-
-1. Open browser DevTools, find the element
-2. Copy selector and relevant styles
-3. Switch to Claude Code, paste and explain
-4. Get the fix, apply it, refresh, check
-5. Repeat for every element
-
-**Every context switch breaks your flow.**
-
-### The Gap in the Market
-
-| Tool | Visual Selection | Keeps Conversation | The Catch |
-|------|:----------------:|:------------------:|-----------|
-| React Grab | ✅ | ❌ | New Claude session each click. No memory. |
-| browser-use | ✅ | ❌ | Per-task agents, not conversational. |
-| Playwright MCP | ❌ | ✅ | Must know selectors. Can't just click. |
-| DevTools MCP | ❌ | ✅ | Programmatic only. No visual picking. |
-| **Claude Lens** | ✅ | ✅ | **Both.** Click things AND keep context. |
 
 ---
 

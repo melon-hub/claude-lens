@@ -1,159 +1,64 @@
 # Claude Lens
 
-> **Point at what's broken. Talk to Claude about it. Keep the conversation going.**
+<p align="center">
+  <b>Point at what's broken. Talk to Claude about it. Keep the conversation going.</b>
+</p>
 
-Visual web development companion for Claude Code that bridges what you *see* with what Claude *knows* - this app will allow you to interact directly with any of your front end applications with two way communication between the app and claude code for seamless and more efficient development
+<p align="center">
+  <img src="https://img.shields.io/badge/Desktop-v0.2.1-blue" alt="Desktop v0.2.1" />
+  <img src="https://img.shields.io/badge/VS_Code-v0.1.0-purple" alt="VS Code v0.1.0" />
+  <img src="https://img.shields.io/badge/Status-Working_Prototype-green" alt="Status" />
+  <img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT License" />
+</p>
 
-**Status:** Working Prototype | VS Code Extension (v0.1.0) | Desktop App (v0.2.1)
-
-<img width="2560" height="1392" alt="image" src="https://github.com/user-attachments/assets/1fa6ee4d-84f8-477b-8906-c798a101f688" />
-
-
----
-
-## The Problem
-
-You're debugging a frontend issue. You can *see* it - the button is misaligned, the card has wrong padding. Now you need to explain it to Claude:
-
-1. Open browser DevTools
-2. Find the element, copy selector and styles
-3. Switch to Claude Code
-4. Paste and explain what's wrong
-5. Get the fix, apply it, refresh, check
-6. Repeat
-
-**Every context switch breaks your flow.** Claude doesn't see what you see. You become a translator.
+<p align="center">
+  <img width="2551" alt="Claude Lens Desktop - Three-panel layout with browser, context panel, and Claude Code terminal" src="https://github.com/user-attachments/assets/69a1b03d-3210-4735-a387-dadd21b35c88" />
+</p>
 
 ---
 
-## The Gap in the Market
+## What is Claude Lens?
 
-We researched every tool in this space:
+**Claude Lens is a visual web development companion for Claude Code.** It bridges what you *see* in your browser with what Claude *knows* about your code.
 
-| Tool | Visual Selection | Conversation Context | The Catch |
-|------|:----------------:|:--------------------:|-----------|
-| **React Grab** | ✅ | ❌ | Spawns new Claude session each time. No memory of previous fixes. |
-| **browser-use** | ✅ | ❌ | Per-task only. Great for automation, not iterative dev. |
-| **Playwright MCP** | ❌ | ✅ | Selector-based. You must know `.nav-item:nth-child(3)`, can't just click. |
-| **Chrome DevTools MCP** | ❌ | ✅ | Programmatic only. Powerful debugging, but no visual picking. |
-| **Stagehand** | ✅ | ❌ | Designed for automation scripts, not conversational development. |
-| **Claude Lens** | ✅ | ✅ | **Both.** Point at things AND keep your conversation. |
+Instead of copying selectors and describing elements, you just **click on them**. Claude sees the element details, component info, and styles instantly - all while keeping your conversation context.
 
-**The pattern:** Visual tools lose context. Context-preserving tools aren't visual. **No tool does both - until now.**
-
----
-
-## How Claude Lens Is Different
-
-### Feature Comparison
-
-| Capability | React Grab | browser-use | Playwright MCP | DevTools MCP | **Claude Lens** |
-|------------|:----------:|:-----------:|:--------------:|:------------:|:---------------:|
-| Click to select element | ✅ | ✅ | ❌ | ❌ | ✅ |
-| Same Claude conversation | ❌ | ❌ | ✅ | ✅ | ✅ |
-| Console error streaming | ❌ | ❌ | ❌ | ✅ | ✅ |
-| Claude can highlight back | ❌ | ✅ | ✅ | ❌ | ✅ |
-| Screenshots to Claude | ❌ | ✅ | ✅ | ❌ | ✅ |
-| No app modification needed | ❌ | ✅ | ✅ | ✅ | ✅ |
-| MCP native (Claude Code) | ❌ | ❌ | ✅ | ✅ | ✅ |
-| Secret redaction | ❌ | ❌ | ❌ | ❌ | ✅ |
-
-### Integration Architecture
-
-Claude Lens combines the best of each approach:
+### The 30-Second Pitch
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        CLAUDE LENS INTEGRATES:                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│   From React Grab:        Visual element selection (click, not code)    │
-│   From browser-use:       Screenshot streaming + element highlighting   │
-│   From Playwright MCP:    MCP-native Claude Code integration            │
-│   From DevTools MCP:      Console capture + deep browser inspection     │
-│                                                                         │
-│   + UNIQUE:               Persistent conversation context               │
-│                           (no new sessions, Claude remembers)           │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+You: *Ctrl+clicks a misaligned button*
+
+Claude: I see that button. It has margin-left: 20px, the parent is flex but not centered.
+        Want me to fix it?
+
+You: Yes, and make it match this one *Ctrl+clicks header button*
+
+Claude: Got it - applying the header button's padding, border-radius, and font-weight.
+        Done. Check it out.
 ```
 
----
-
-## What This Looks Like
-
-```
-You: *Ctrl+clicks a misaligned button in Claude Lens*
-
-Claude: I see that button. It has:
-        - margin-left: 20px
-        - position: relative
-        - parent is flex but not centered
-
-        Want me to center it?
-
-You: Yes
-
-Claude: Done. I've highlighted the button so you can verify.
-
-You: Actually, make it match the header button's style
-
-You: *Ctrl+clicks the header button*
-
-Claude: Got it. The header button uses:
-        - padding: 12px 24px (yours has 8px 16px)
-        - border-radius: 8px (yours has 4px)
-        - font-weight: 600 (yours has 400)
-
-        Apply all of these?
-```
-
-**That last exchange is impossible with other tools.** It requires visual selection + conversation memory + iterative refinement.
+**That conversation is impossible with other tools.** They either lose context between clicks or can't do visual selection at all.
 
 ---
 
 ## Quick Start
 
 ### Prerequisites
-
 - Node.js 18+
 - pnpm 8+
 
-### Installation
+### Install & Run
 
 ```bash
 git clone https://github.com/melon-hub/claude-lens.git
 cd claude-lens
 pnpm install
 pnpm run build
-```
-
-### Option A: Desktop App (Recommended)
-
-The desktop app provides the best experience with a real embedded browser and integrated Claude Code terminal.
-
-```bash
 cd packages/desktop
 pnpm run dev
 ```
 
-Features:
-- **Real browser** (not screenshots) - full interaction
-- **Integrated Claude Code terminal** - no context switching
-- **Hover tooltips** - see element selectors as you move
-- **One-click inspect** - click element → instantly sent to Claude
-
-### Option B: VS Code Extension
-
-For those who prefer staying in VS Code:
-
-1. Open claude-lens in VS Code
-2. Press `F5` to launch Extension Development Host
-3. `Ctrl+Shift+P` → "Claude Lens: Open Browser Panel"
-4. Enter localhost URL → Click "Go"
-5. `Ctrl+Click` any element to inspect
-
-### Connect MCP Server to Claude Code
+### Connect to Claude Code
 
 Add to `~/.claude/settings.json`:
 
@@ -168,216 +73,159 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
+That's it! Open the app, navigate to your localhost dev server, and start clicking elements.
+
+---
+
+## Why Claude Lens?
+
+### The Problem
+
+You're debugging a frontend issue. You can *see* the bug - the button is misaligned, the card has wrong padding. Now you need to explain it to Claude:
+
+1. Open browser DevTools, find the element
+2. Copy selector and relevant styles
+3. Switch to Claude Code, paste and explain
+4. Get the fix, apply it, refresh, check
+5. Repeat for every element
+
+**Every context switch breaks your flow.**
+
+### The Gap in the Market
+
+| Tool | Visual Selection | Keeps Conversation | The Catch |
+|------|:----------------:|:------------------:|-----------|
+| React Grab | ✅ | ❌ | New Claude session each click. No memory. |
+| browser-use | ✅ | ❌ | Per-task agents, not conversational. |
+| Playwright MCP | ❌ | ✅ | Must know selectors. Can't just click. |
+| DevTools MCP | ❌ | ✅ | Programmatic only. No visual picking. |
+| **Claude Lens** | ✅ | ✅ | **Both.** Click things AND keep context. |
+
 ---
 
 ## Features
 
-### Desktop App (v0.2.1)
+### Desktop App (Recommended)
 
 | Feature | Description |
 |---------|-------------|
-| **Real Embedded Browser** | Full BrowserView - not screenshots, real browser interaction |
-| **Playwright Automation** | 25+ tools: click, fill, type, hover, drag, scroll, keyboard |
+| **Real Embedded Browser** | Full Electron BrowserView - not screenshots |
 | **Integrated Claude Terminal** | Claude Code runs inside the app via PTY |
-| **Dev Server Integration** | Auto-starts npm/pnpm dev with progress timer |
-| **Hover Tooltips** | See element selectors as you hover |
-| **One-Click to Claude** | Click element → instantly sent to Claude conversation |
-| **Console Drawer** | Live console errors/warnings with filtering |
-| **Framework Detection** | Detects React, Vue, Svelte, Angular components |
+| **Ctrl+Click Inspection** | Click any element → instant context to Claude |
+| **Hover Tooltips** | See selectors as you move your mouse |
+| **Framework Detection** | Identifies React, Vue, Svelte, Angular components |
+| **Console Drawer** | Live errors/warnings with filtering |
+| **Dev Server Integration** | Auto-detects package.json, starts dev server, Claude can restart it |
+| **Hot Reload Aware** | Page auto-refreshes when your code changes |
 
-### VS Code Extension (v0.0.1)
+### 25+ MCP Tools (Playwright-Powered)
 
-| Feature | Description |
-|---------|-------------|
-| **Browser Panel** | Screenshot streaming from Chrome via CDP |
-| **Element Inspection** | Ctrl+Click any element → selector, styles, bounding box |
-| **Console Streaming** | Errors and warnings automatically flow to Claude |
-| **Secret Redaction** | API keys, tokens, JWTs automatically redacted |
-| **Element Highlighting** | Claude can highlight elements in your browser |
-| **Screenshots** | Full page or element screenshots as MCP image content |
-| **WSL Support** | Auto-launches Windows Chrome from WSL |
+Claude can automate your browser:
 
-### Core Features (Both)
+| Category | Tools |
+|----------|-------|
+| **Core** | screenshot, browser_snapshot, click, fill, type, navigate, reload |
+| **Automation** | hover, drag_and_drop, scroll, press_key, select_option |
+| **Inspection** | inspect_element, highlight_element, get_text, get_attribute |
+| **Waiting** | wait_for, wait_for_response |
+| **Navigation** | go_back, go_forward, handle_dialog |
+| **Dev Tools** | set_viewport, restart_server, evaluate |
 
-| Feature | Description |
-|---------|-------------|
-| **React/Vue/Svelte/Angular Detection** | Identifies component names and source files |
-| **MCP Integration** | Native Claude Code tools |
-| **Localhost Security** | Only allows local development URLs |
-| **Secret Redaction** | Automatically redacts API keys, tokens, credentials |
-
-### MCP Tools (25+ Playwright-Powered)
-
-#### Core Tools
-| Tool | Description |
-|------|-------------|
-| `claude_lens/screenshot` | Capture viewport or specific element |
-| `claude_lens/browser_snapshot` | Get accessibility tree (compact, ~100 lines) |
-| `claude_lens/click` | Click elements by selector |
-| `claude_lens/fill` | Fill input fields (clears first) |
-| `claude_lens/type` | Type text character by character |
-| `claude_lens/navigate` | Navigate to URL (localhost only) |
-| `claude_lens/reload` | Reload page after code changes |
-
-#### Automation Tools (browser-use style) ✅ DONE
-| Tool | Description |
-|------|-------------|
-| `claude_lens/hover` | Hover over elements (trigger hover states) |
-| `claude_lens/select_option` | Select dropdown options |
-| `claude_lens/press_key` | Press keyboard keys (Enter, Tab, Escape) |
-| `claude_lens/drag_and_drop` | Drag from source to target |
-| `claude_lens/scroll` | Scroll page or element into view |
-| `claude_lens/wait_for` | Wait for element to appear |
-| `claude_lens/wait_for_response` | Wait for network response |
-
-#### Element Inspection
-| Tool | Description |
-|------|-------------|
-| `claude_lens/inspect_element` | Get element details from click or selector |
-| `claude_lens/highlight_element` | Highlight element visually |
-| `claude_lens/get_text` | Get element text content |
-| `claude_lens/get_attribute` | Get element attribute value |
-| `claude_lens/is_visible` | Check if element is visible |
-| `claude_lens/is_enabled` | Check if element is enabled |
-| `claude_lens/is_checked` | Check if checkbox/radio is checked |
-| `claude_lens/get_console` | Get browser console logs |
-
-#### Navigation & Advanced
-| Tool | Description |
-|------|-------------|
-| `claude_lens/go_back` | Browser back button |
-| `claude_lens/go_forward` | Browser forward button |
-| `claude_lens/handle_dialog` | Accept or dismiss alert/confirm dialogs |
-| `claude_lens/evaluate` | Execute custom JavaScript |
-
-**Example workflow with automation:**
+**Example:**
 ```
 You: Test the login form with invalid credentials
 
-Claude: I'll test the login form now.
-        *clicks email field*
-        *types "invalid@test.com"*
-        *clicks password field*
-        *types "wrongpassword"*
-        *clicks submit button*
-
-        I see an error message appeared: "Invalid credentials"
-        The form is working correctly. Want me to test valid credentials too?
+Claude: *fills email* *fills password* *clicks submit*
+        Error message appeared: "Invalid credentials"
+        Form validation is working. Test with valid credentials?
 ```
 
-### Roadmap
+### Viewport Testing
 
-| Feature | Status | Description |
-|---------|--------|-------------|
-| React/Vue detection | ✅ Done | Map DOM elements to component source files |
-| Standalone app | ✅ Done | Electron desktop app |
-| Playwright automation | ✅ Done | 25+ browser automation tools |
-| Multi-element select | 🔜 Planned | "Make this look like that" workflow |
-| Visual diff mode | 🔜 Planned | Before/after comparison |
-| Network monitoring | 🔜 Planned | Failed requests auto-reported |
+Test responsive designs without leaving Claude Lens:
+
+| Preset | Width | Use Case |
+|--------|-------|----------|
+| Full Width | 100% | Default development view |
+| Desktop | 1280px | Standard desktop testing |
+| Tablet | 768px | iPad/tablet layouts |
+| Mobile | 375px | iPhone/mobile testing |
+| Custom | Any | Enter any width you need |
+
+Claude can also change viewports programmatically via `claude_lens/set_viewport`.
+
+### VS Code Extension (Alternative)
+
+For those who prefer staying in VS Code:
+- Screenshot streaming from Chrome via CDP
+- Same Ctrl+Click inspection workflow
+- WSL support (auto-launches Windows Chrome)
 
 ---
 
-## Architecture
+## Performance Optimizations
+
+Claude Lens includes optimizations that make Claude Code work faster:
+
+| Feature | Benefit |
+|---------|---------|
+| **Accessibility Tree Snapshots** | `browser_snapshot` returns a compact ~100-line summary instead of full DOM - Claude parses faster |
+| **Smart Element Selection** | Ctrl+Click sends only relevant context (selector, styles, component) - not the entire page |
+| **Viewport Constraints** | Browser panel respects viewport width for accurate responsive testing |
+| **Efficient Console Capture** | Filters duplicate messages, batches updates |
+
+---
+
+## How It Works
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         VS Code                                  │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │                   Claude Lens Panel                          ││
-│  │  ┌────────────────────────────────────────────────────────┐ ││
-│  │  │  Your localhost app (screenshot stream @ 5fps)         │ ││
-│  │  │  Ctrl+Click anywhere to inspect                        │ ││
-│  │  └────────────────────────────────────────────────────────┘ ││
-│  │  [Console errors stream here]                                ││
-│  └─────────────────────────────────────────────────────────────┘│
-│                              │                                   │
-│                         MCP (native)                             │
-│                              │                                   │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │              Claude Code (same conversation)                 ││
-│  └─────────────────────────────────────────────────────────────┘│
+│                      Claude Lens Desktop                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │   Browser    │  │   Context    │  │    Claude Code       │  │
+│  │   Panel      │  │   Panel      │  │    Terminal          │  │
+│  │              │  │              │  │                      │  │
+│  │  Your app    │  │  Element     │  │  Same conversation   │  │
+│  │  runs here   │  │  details,    │  │  throughout your     │  │
+│  │              │  │  component   │  │  entire session      │  │
+│  │  Ctrl+Click  │  │  info,       │  │                      │  │
+│  │  to inspect  │  │  styles      │  │                      │  │
+│  └──────────────┘  └──────────────┘  └──────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
-                               │
-                          CDP (:9222)
-                               │
-┌──────────────────────────────┴──────────────────────────────────┐
-│                      Chrome Browser                              │
-│                   (your localhost app)                           │
-└─────────────────────────────────────────────────────────────────┘
+         │                    │                    │
+         │              MCP Tools                  │
+         └────────────────────┴────────────────────┘
+                    Playwright automation
 ```
 
-### Package Structure
-
-```
-packages/
-├── core/              # @claude-lens/core - shared functionality
-│   ├── browser/       # CDP adapter, Chrome launcher, framework detection
-│   ├── security/      # URL validation, secret redaction
-│   ├── bridge/        # HTTP bridge for MCP ↔ Extension
-│   └── inspector/     # Element inspection logic
-│
-├── desktop/           # Electron desktop app (recommended)
-│   ├── main/          # Main process - BrowserView, PTY, MCP server
-│   └── renderer/      # UI - browser panel, console drawer, Claude terminal
-│
-├── vscode-extension/  # VS Code extension (alternative)
-│
-└── mcp-server/        # Standalone MCP server for Claude Code
-```
+When you Ctrl+Click an element:
+1. **Browser panel** captures the element's selector, bounding box, styles
+2. **Context panel** shows React/Vue component info, computed styles, attributes
+3. **Claude terminal** receives everything via MCP - ready for your question
 
 ---
 
 ## Security
 
-| Protection | Implementation |
-|------------|----------------|
-| **Localhost only** | URLs validated against `localhost`, `127.0.0.1`, `[::1]` |
-| **Secret redaction** | OpenAI keys, GitHub PATs, AWS keys, JWTs, connection strings auto-redacted |
-| **No external network** | Extension never makes external requests |
-| **CSP enforced** | Strict Content Security Policy in webview |
-| **Input validation** | All MCP tool params validated with Zod |
+| Protection | How |
+|------------|-----|
+| **Localhost only** | URLs validated - only `localhost`, `127.0.0.1`, `[::1]` |
+| **Secret redaction** | API keys, tokens, JWTs auto-redacted from context |
+| **No external network** | Extension never phones home |
+| **Input validation** | All MCP params validated with Zod |
 
 ---
 
-## Why Not Just Use...?
+## Roadmap
 
-| Tool | Why Claude Lens instead |
-|------|-------------------------|
-| **React Grab** | Lose conversation every click. Can't say "now fix the other one." |
-| **browser-use** | Per-task agent, not conversational. Designed for automation. |
-| **Playwright MCP** | Must know selectors. Can't point at things. |
-| **DevTools MCP** | No visual selection. Great for debugging, not iterative UI work. |
-| **Cursor's browser** | Proprietary. Claude Lens is open source and MCP-native. |
-
----
-
-## vs Cursor's Built-in Browser
-
-Cursor has an integrated browser. Here's how Claude Lens compares:
-
-| Capability | Cursor Browser | Claude Lens Desktop | Claude Lens VS Code |
-|------------|:--------------:|:-------------------:|:-------------------:|
-| Embedded in IDE/App | ✅ | ✅ | ✅ |
-| Live browser view | ✅ Real browser | ✅ Real browser | ⚠️ Screenshot stream |
-| User clicks to inspect | ✅ | ✅ | ✅ |
-| Hover tooltips | ✅ | ✅ | ❌ |
-| **AI clicks autonomously** | ✅ | ✅ | ✅ |
-| **AI fills forms** | ✅ | ✅ | ✅ |
-| **AI keyboard/drag/scroll** | ? | ✅ | ✅ |
-| Console access | ✅ | ✅ | ✅ |
-| Framework detection | ? | ✅ React/Vue/Svelte/Angular | ✅ |
-| AI conversation context | ✅ Cursor AI | ✅ Claude Code | ✅ Claude Code |
-| Works outside Cursor | ❌ | ✅ | ✅ |
-| Works with Claude Code | ❌ | ✅ | ✅ |
-| Open source | ❌ | ✅ | ✅ |
-
-**Honest comparison:**
-- Claude Lens now has full Playwright-powered automation (25+ tools) matching Cursor's capabilities
-- Claude Lens Desktop has a real embedded browser (BrowserView), same approach as Cursor
-- Claude Lens is open source and designed for Claude Code's MCP ecosystem
-
-**The real difference:** Cursor's browser is proprietary and Cursor-only. Claude Lens is open, extensible, and Claude Code native.
+| Feature | Status |
+|---------|--------|
+| Framework detection (React/Vue/Svelte/Angular) | ✅ Done |
+| Desktop app with real browser | ✅ Done |
+| Playwright automation (25+ tools) | ✅ Done |
+| Multi-element select ("make this look like that") | 🔜 Planned |
+| Visual diff mode (before/after) | 🔜 Planned |
+| Network request monitoring | 🔜 Planned |
 
 ---
 
@@ -385,9 +233,20 @@ Cursor has an integrated browser. Here's how Claude Lens compares:
 
 ```bash
 pnpm run build      # Build all packages
-pnpm run typecheck  # Type check
 pnpm run dev        # Watch mode
+pnpm run typecheck  # Type check
 pnpm run lint       # ESLint
+pnpm run test       # Run tests
+```
+
+### Package Structure
+
+```
+packages/
+├── core/              # Shared: CDP, security, framework detection
+├── desktop/           # Electron app (recommended)
+├── vscode-extension/  # VS Code extension
+└── mcp-server/        # Standalone MCP server
 ```
 
 ---

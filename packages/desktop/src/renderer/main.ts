@@ -20,6 +20,7 @@ import {
 } from './context-formatter';
 import { TERMINAL_OPTIONS, substituteChars } from './terminal';
 import { debounce, waitForFonts, runFontDiagnostics, getEl, copyToClipboard } from './utils';
+import { VIEWPORT_PRESETS } from './handlers';
 import {
   consoleBuffer,
   addConsoleMessage as stateAddConsoleMessage,
@@ -1665,17 +1666,7 @@ restartServerBtn.addEventListener('click', async () => {
   // Button will be re-enabled when server:ready fires
 });
 
-// Viewport preset widths (0 = full width / no constraint)
-const VIEWPORT_PRESETS: Record<string, number> = {
-  'full': 0,
-  'desktop': 1280,
-  'tablet-landscape': 1024,
-  'tablet': 768,
-  'mobile-large': 425,
-  'mobile': 375,
-};
-
-// Viewport preset change handler
+// Viewport preset change handler (VIEWPORT_PRESETS imported from ./handlers)
 viewportSelect.addEventListener('change', () => {
   const preset = viewportSelect.value;
   viewportWidth = VIEWPORT_PRESETS[preset] || 0;

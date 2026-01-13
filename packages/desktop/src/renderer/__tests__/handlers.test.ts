@@ -80,21 +80,20 @@ describe('Navigation Handlers', () => {
   });
 
   describe('VIEWPORT_PRESETS', () => {
-    it('should have expected presets', () => {
+    it('should have expected presets matching UI dropdown', () => {
       expect(VIEWPORT_PRESETS.full).toBe(0);
-      expect(VIEWPORT_PRESETS['iphone-se']).toBe(375);
-      expect(VIEWPORT_PRESETS['iphone-14']).toBe(390);
-      expect(VIEWPORT_PRESETS.ipad).toBe(768);
-      expect(VIEWPORT_PRESETS['ipad-pro']).toBe(1024);
       expect(VIEWPORT_PRESETS.desktop).toBe(1280);
-      expect(VIEWPORT_PRESETS['full-hd']).toBe(1920);
+      expect(VIEWPORT_PRESETS['tablet-landscape']).toBe(1024);
+      expect(VIEWPORT_PRESETS.tablet).toBe(768);
+      expect(VIEWPORT_PRESETS['mobile-large']).toBe(425);
+      expect(VIEWPORT_PRESETS.mobile).toBe(375);
     });
   });
 
   describe('getViewportWidth', () => {
     it('should return width for known preset', () => {
       expect(getViewportWidth('full')).toBe(0);
-      expect(getViewportWidth('iphone-se')).toBe(375);
+      expect(getViewportWidth('mobile')).toBe(375);
       expect(getViewportWidth('desktop')).toBe(1280);
     });
 

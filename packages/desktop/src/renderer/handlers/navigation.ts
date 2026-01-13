@@ -54,16 +54,15 @@ export function isLocalhostUrl(url: string): boolean {
 }
 
 /**
- * Viewport presets
+ * Viewport presets (matches UI dropdown in index.html)
  */
 export const VIEWPORT_PRESETS: Record<string, number> = {
   full: 0,
-  'iphone-se': 375,
-  'iphone-14': 390,
-  ipad: 768,
-  'ipad-pro': 1024,
   desktop: 1280,
-  'full-hd': 1920,
+  'tablet-landscape': 1024,
+  tablet: 768,
+  'mobile-large': 425,
+  mobile: 375,
 };
 
 /**

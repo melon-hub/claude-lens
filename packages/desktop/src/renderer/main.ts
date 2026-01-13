@@ -6,7 +6,7 @@
  */
 
 import { Terminal } from 'xterm';
-import type { ElementInfo, ProjectInfo, CapturedInteraction, ToastCapture } from './types';
+import type { ElementInfo, ProjectInfo, CapturedInteraction } from './types';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -22,8 +22,17 @@ import { TERMINAL_OPTIONS, substituteChars } from './terminal';
 import { debounce, waitForFonts, runFontDiagnostics, getEl, copyToClipboard } from './utils';
 import { VIEWPORT_PRESETS } from './handlers';
 import {
+  state,
+  updateState,
   consoleBuffer,
   addConsoleMessage as stateAddConsoleMessage,
+  addSelectedElement as stateAddSelectedElement,
+  removeSelectedElement as stateRemoveSelectedElement,
+  clearSelectedElements,
+  addToInspectSequence,
+  clearInspectSequence,
+  addCapturedToast,
+  clearCapturedToasts,
   DRAWER_HEIGHT,
   type ConsoleMessage,
 } from './state';
@@ -154,25 +163,8 @@ terminal.loadAddon(new WebLinksAddon());
 terminal.loadAddon(unicode11Addon);
 terminal.unicode.activeVersion = '11';
 
-// State is now managed by the state module
-// Local references for backward compatibility during refactor
-// These will be removed in Phase 7 integration
-let selectedElements: ElementInfo[] = [];
-let inspectSequence: CapturedInteraction[] = [];
-let capturedToasts: ToastCapture[] = [];
-let claudeRunning = false;
-let browserLoaded = false;
-let inspectMode = false;
-let consoleDrawerOpen = false;
-let contextMode: ContextMode = 'lean';
-let hoverFrozen = false;
-let isThinking = false;
-let thinkingTimeout: ReturnType<typeof setTimeout> | null = null;
-let viewportWidth = 0;
-let currentProjectName = '';
-let currentServerPort = 0;
-let currentServerType: 'dev' | 'static' | null = null;
-let playwrightConnected = false;
+// State is managed by the state module - all state accessed via state.* getters
+// and modified via updateState() or helper functions
 
 /**
  * Update browser bounds with viewport constraint
@@ -180,13 +172,13 @@ let playwrightConnected = false;
  */
 function updateBrowserBounds() {
   const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
-  const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
+  const drawerHeight = state.consoleDrawerOpen ? DRAWER_HEIGHT : 0;
 
   // Apply viewport width constraint
   const panelWidth = browserPanel.offsetWidth;
-  const effectiveWidth = viewportWidth > 0 ? Math.min(viewportWidth, panelWidth) : panelWidth;
+  const effectiveWidth = state.viewportWidth > 0 ? Math.min(state.viewportWidth, panelWidth) : panelWidth;
 
-  console.log('[Viewport] updateBrowserBounds:', { viewportWidth, panelWidth, effectiveWidth, drawerHeight });
+  console.log('[Viewport] updateBrowserBounds:', { viewportWidth: state.viewportWidth, panelWidth, effectiveWidth, drawerHeight });
 
   // Pass both panelWidth and effectiveWidth so main can center the browser
   window.claudeLens.browser.updateBounds(effectiveWidth, drawerHeight, panelWidth);
@@ -197,7 +189,7 @@ function updateBrowserBounds() {
  * Consolidates all the state changes needed when browser content is ready
  */
 function setBrowserLoaded(url?: string) {
-  browserLoaded = true;
+  updateState({ browserLoaded: true });
   refreshBtn.disabled = false;
   restartServerBtn.disabled = false;
   placeholder.classList.add('hidden');
@@ -282,8 +274,7 @@ function showProjectModal(project: ProjectInfo) {
       devBtn.disabled = true;
       devBtn.textContent = 'Starting...';
       // Update status bar state
-      currentProjectName = project.name;
-      currentServerType = 'dev';
+      updateState({ currentProjectName: project.name, currentServerType: 'dev' });
       updateStatusBar();
       const result = await window.claudeLens.project.start({ useDevServer: true });
       modal.remove();
@@ -306,8 +297,7 @@ function showProjectModal(project: ProjectInfo) {
     staticBtn.disabled = true;
     staticBtn.textContent = 'Starting...';
     // Update status bar state
-    currentProjectName = project.name;
-    currentServerType = 'static';
+    updateState({ currentProjectName: project.name, currentServerType: 'static' });
     updateStatusBar();
     const result = await window.claudeLens.project.start({ useDevServer: false });
     modal.remove();
@@ -365,7 +355,7 @@ async function init() {
     if (e.ctrlKey && e.shiftKey && (e.key === 'v' || e.key === 'V') && e.type === 'keydown') {
       // Handle async image check
       (async () => {
-        if (!claudeRunning) return;
+        if (!state.claudeRunning) return;
         try {
           const hasImage = await window.claudeLens.clipboard.hasImage();
           console.log('[Clipboard] hasImage:', hasImage);
@@ -377,7 +367,7 @@ async function init() {
               window.claudeLens.pty.write(`@${result.path} `);
               setStatus('Image pasted', true);
               setTimeout(() => {
-                if (browserLoaded) setStatus('Connected', true);
+                if (state.browserLoaded) setStatus('Connected', true);
               }, 2000);
             } else {
               setStatus(`Image error: ${result.error}`);
@@ -404,7 +394,7 @@ async function init() {
         navigator.clipboard.writeText(selection).then(() => {
           setStatus('Copied to clipboard');
           setTimeout(() => {
-            if (browserLoaded) setStatus('Connected', true);
+            if (state.browserLoaded) setStatus('Connected', true);
           }, 2000);
         });
         return false;
@@ -425,13 +415,12 @@ async function init() {
   // PTY data handler (substituteChars imported from terminal module)
   window.claudeLens.pty.onData((data) => {
     // Hide thinking indicator when we receive output from Claude
-    if (isThinking) {
-      isThinking = false;
-      thinkingIndicator.classList.add('hidden');
-      if (thinkingTimeout) {
-        clearTimeout(thinkingTimeout);
-        thinkingTimeout = null;
+    if (state.isThinking) {
+      if (state.thinkingTimeout) {
+        clearTimeout(state.thinkingTimeout);
       }
+      updateState({ isThinking: false, thinkingTimeout: null });
+      thinkingIndicator.classList.add('hidden');
     }
     // Substitute missing characters and enhance MCP output
     const processed = substituteChars(data);
@@ -440,13 +429,13 @@ async function init() {
 
   window.claudeLens.pty.onExit((code) => {
     terminal.writeln(`\r\n[Claude exited with code ${code}]`);
-    claudeRunning = false;
+    updateState({ claudeRunning: false });
     startClaudeBtn.textContent = 'Start Claude';
   });
 
   // Terminal input -> PTY
   terminal.onData((data) => {
-    if (claudeRunning) {
+    if (state.claudeRunning) {
       window.claudeLens.pty.write(data);
     }
   });
@@ -462,11 +451,11 @@ async function init() {
       fitAddon.fit();
       // Force full terminal refresh to clear rendering artifacts
       terminal.refresh(0, terminal.rows - 1);
-      if (claudeRunning) {
+      if (state.claudeRunning) {
         window.claudeLens.pty.resize(terminal.cols, terminal.rows);
       }
       // Update browser bounds when window resizes
-      if (browserLoaded) {
+      if (state.browserLoaded) {
         updateBrowserBounds();
       }
     }, 100);
@@ -487,7 +476,7 @@ async function init() {
 
   // Listen for toast captures (Phase 4)
   window.claudeLens.browser.onToastCaptured((toast) => {
-    capturedToasts.push(toast);
+    addCapturedToast(toast);
     updateToastCapturesUI();
   });
 
@@ -496,7 +485,7 @@ async function init() {
     const elementData = element as ElementInfo;
 
     // If in inspect mode, add to sequence instead of exiting
-    if (inspectMode) {
+    if (state.inspectMode) {
       // Add to inspect sequence
       const interaction: CapturedInteraction = {
         element: elementData,
@@ -504,12 +493,12 @@ async function init() {
         result: elementData.interactionResult || 'Element captured',
         timestamp: Date.now(),
       };
-      inspectSequence.push(interaction);
+      addToInspectSequence(interaction);
       updateInspectSequenceUI();
 
       // Also add to selected elements
       addSelectedElement(elementData);
-      browserHelpText.textContent = `Captured ${inspectSequence.length} • Click more or stop inspecting`;
+      browserHelpText.textContent = `Captured ${state.inspectSequence.length} • Click more or stop inspecting`;
     } else {
       // Normal single-element selection (Ctrl+Click)
       addSelectedElement(elementData);
@@ -524,7 +513,7 @@ async function init() {
 
   // Listen for project close (File > Close Project)
   window.claudeLens.project.onClosed(() => {
-    browserLoaded = false;
+    updateState({ browserLoaded: false });
     refreshBtn.disabled = true;
     restartServerBtn.disabled = true;
     placeholder.classList.remove('hidden');
@@ -532,14 +521,16 @@ async function init() {
     setStatus('Disconnected');
     browserHelpText.textContent = '';
     // Reset Claude state
-    claudeRunning = false;
+    updateState({ claudeRunning: false });
     startClaudeBtn.textContent = 'Start Claude';
     terminal.clear();
     // Reset status bar state
-    currentProjectName = '';
-    currentServerPort = 0;
-    currentServerType = null;
-    playwrightConnected = false;
+    updateState({
+      currentProjectName: '',
+      currentServerPort: 0,
+      currentServerType: null,
+      playwrightConnected: false,
+    });
     updateStatusBar();
     // Reset project dropdown
     projectDropdown.value = '';
@@ -552,8 +543,10 @@ async function init() {
     const serverType = info.useDevServer ? 'dev server' : 'static server';
     setStatus(`Loading ${info.name} (${serverType})...`);
     // Update status bar state
-    currentProjectName = info.name;
-    currentServerType = info.useDevServer ? 'dev' : 'static';
+    updateState({
+      currentProjectName: info.name,
+      currentServerType: info.useDevServer ? 'dev' : 'static',
+    });
     updateStatusBar();
     // Update project dropdown to show current project
     updateProjectDropdown();
@@ -569,7 +562,7 @@ async function init() {
 
   // Handle Claude auto-starting when a project opens
   window.claudeLens.pty.onAutoStarted(() => {
-    claudeRunning = true;
+    updateState({ claudeRunning: true });
     startClaudeBtn.textContent = 'Running';
     window.claudeLens.pty.resize(terminal.cols, terminal.rows);
     terminal.focus();
@@ -585,10 +578,10 @@ async function init() {
   window.claudeLens.server.onReady((info) => {
     setStatus(`Server ready on port ${info.port}`, true);
     // Update status bar with port info
-    currentServerPort = info.port;
+    updateState({ currentServerPort: info.port });
     updateStatusBar();
     // Ensure browserLoaded is true for recent projects flow (modal flow sets it separately)
-    if (!browserLoaded) {
+    if (!state.browserLoaded) {
       console.log('[Viewport] Server ready, browser loaded, updating bounds');
       setBrowserLoaded(`http://localhost:${info.port}`);
     } else {
@@ -605,17 +598,17 @@ async function init() {
 
   // Handle Playwright connection status for status bar
   window.claudeLens.browser.onPlaywrightConnecting(() => {
-    playwrightConnected = false;
+    updateState({ playwrightConnected: false });
     updateStatusBar();
   });
 
   window.claudeLens.browser.onPlaywrightConnected(() => {
-    playwrightConnected = true;
+    updateState({ playwrightConnected: true });
     updateStatusBar();
   });
 
   window.claudeLens.browser.onPlaywrightError(() => {
-    playwrightConnected = false;
+    updateState({ playwrightConnected: false });
     updateStatusBar();
   });
 
@@ -666,9 +659,9 @@ async function updateProjectDropdown() {
   }
 
   // Select current project if open
-  if (currentProjectName) {
+  if (state.currentProjectName) {
     const currentOption = Array.from(projectDropdown.options).find(
-      opt => opt.textContent === currentProjectName
+      opt => opt.textContent === state.currentProjectName
     );
     if (currentOption) {
       projectDropdown.value = currentOption.value;
@@ -753,11 +746,11 @@ function resetPanelWidths() {
   localStorage.removeItem('claude-lens-panel-widths');
 
   // Update browser bounds and terminal
-  const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
+  const drawerHeight = state.consoleDrawerOpen ? DRAWER_HEIGHT : 0;
   window.claudeLens.browser.updateBounds(0, drawerHeight);
   fitAddon.fit();
   terminal.refresh(0, terminal.rows - 1);
-  if (claudeRunning) {
+  if (state.claudeRunning) {
     window.claudeLens.pty.resize(terminal.cols, terminal.rows);
   }
 }
@@ -789,9 +782,9 @@ function setupResizer(resizer: HTMLElement, panelClass: string, side: 'left' | '
       // Ensure minimum widths: browser panel + context panel + claude panel
       if (newWidth >= MIN_PANEL_WIDTH && newWidth < mainRect.width - MIN_PANEL_WIDTH * 2) {
         panel.style.flex = `0 0 ${newWidth}px`;
-        const drawerHeight = consoleDrawerOpen ? DRAWER_HEIGHT : 0;
+        const drawerHeight = state.consoleDrawerOpen ? DRAWER_HEIGHT : 0;
         // Apply viewport constraint to resize
-        const effectiveWidth = viewportWidth > 0 ? Math.min(viewportWidth, newWidth) : newWidth;
+        const effectiveWidth = state.viewportWidth > 0 ? Math.min(state.viewportWidth, newWidth) : newWidth;
         window.claudeLens.browser.updateBounds(effectiveWidth, drawerHeight);
       }
     } else {
@@ -813,7 +806,7 @@ function setupResizer(resizer: HTMLElement, panelClass: string, side: 'left' | '
       fitAddon.fit();
       // Force terminal refresh to clear rendering artifacts after panel resize
       terminal.refresh(0, terminal.rows - 1);
-      if (claudeRunning) {
+      if (state.claudeRunning) {
         window.claudeLens.pty.resize(terminal.cols, terminal.rows);
       }
     }
@@ -822,11 +815,8 @@ function setupResizer(resizer: HTMLElement, panelClass: string, side: 'left' | '
 
 // Add selected element to context panel
 function addSelectedElement(element: ElementInfo) {
-  // Add to list if not already selected
-  const existing = selectedElements.find(e => e.selector === element.selector);
-  if (!existing) {
-    selectedElements.push(element);
-  }
+  // Add to list if not already selected (delegate to state helper)
+  stateAddSelectedElement(element);
 
   // Update context panel display
   updateContextPanel(element);
@@ -1095,7 +1085,7 @@ function updateContextPanel(element: ElementInfo) {
 function updateElementChips() {
   elementChips.textContent = '';
 
-  for (const element of selectedElements) {
+  for (const element of state.selectedElements) {
     const chip = document.createElement('div');
     chip.className = 'element-chip';
 
@@ -1130,10 +1120,10 @@ function updateElementChips() {
 
 // Remove element from selection
 function removeElement(selector: string) {
-  selectedElements = selectedElements.filter(e => e.selector !== selector);
+  stateRemoveSelectedElement(selector);
   updateElementChips();
 
-  if (selectedElements.length === 0) {
+  if (state.selectedElements.length === 0) {
     // Reset context panel to empty state
     contextEmpty.classList.remove('hidden');
     elementInfo.classList.add('hidden');
@@ -1146,7 +1136,7 @@ function removeElement(selector: string) {
     textInfo.classList.add('hidden');
   } else {
     // Show the last selected element
-    const lastElement = selectedElements[selectedElements.length - 1];
+    const lastElement = state.selectedElements[state.selectedElements.length - 1];
     if (lastElement) {
       updateContextPanel(lastElement);
     }
@@ -1206,9 +1196,9 @@ function updateConsoleDrawer() {
 // Update inspect sequence UI (Phase 2)
 function updateInspectSequenceUI() {
   // Show/hide sequence section
-  if (inspectSequence.length > 0) {
+  if (state.inspectSequence.length > 0) {
     inspectSequenceInfo.classList.remove('hidden');
-    sequenceCount.textContent = String(inspectSequence.length);
+    sequenceCount.textContent = String(state.inspectSequence.length);
   } else {
     inspectSequenceInfo.classList.add('hidden');
   }
@@ -1216,8 +1206,8 @@ function updateInspectSequenceUI() {
   // Render sequence items
   inspectSequenceList.textContent = '';
 
-  for (let i = 0; i < inspectSequence.length; i++) {
-    const interaction = inspectSequence[i];
+  for (let i = 0; i < state.inspectSequence.length; i++) {
+    const interaction = state.inspectSequence[i];
     if (!interaction) continue;
     const el = interaction.element;
 
@@ -1260,9 +1250,9 @@ function updateInspectSequenceUI() {
   }
 }
 
-// Clear inspect sequence
-function clearInspectSequence() {
-  inspectSequence = [];
+// Clear inspect sequence and update UI
+function clearInspectSequenceUI() {
+  clearInspectSequence();
   updateInspectSequenceUI();
 }
 
@@ -1533,17 +1523,17 @@ function updateShadowDOMUI(element: ElementInfo) {
  * Update toast captures UI (Phase 4)
  */
 function updateToastCapturesUI() {
-  if (capturedToasts.length === 0) {
+  if (state.capturedToasts.length === 0) {
     toastCapturesInfo.classList.add('hidden');
     return;
   }
 
   toastCapturesInfo.classList.remove('hidden');
-  toastCount.textContent = String(capturedToasts.length);
+  toastCount.textContent = String(state.capturedToasts.length);
 
   toastCapturesList.textContent = '';
 
-  capturedToasts.forEach((toast) => {
+  state.capturedToasts.forEach((toast) => {
     const item = document.createElement('div');
     item.className = 'toast-item';
 
@@ -1573,7 +1563,7 @@ function updateToastCapturesUI() {
  * Clear toast captures
  */
 function clearToastCaptures() {
-  capturedToasts = [];
+  clearCapturedToasts();
   updateToastCapturesUI();
 }
 
@@ -1590,13 +1580,13 @@ function updatePhase4UI(element: ElementInfo) {
 
 // Start Claude
 startClaudeBtn.addEventListener('click', async () => {
-  if (claudeRunning) return;
+  if (state.claudeRunning) return;
 
   startClaudeBtn.textContent = 'Starting...';
   const result = await window.claudeLens.pty.start();
 
   if (result.success) {
-    claudeRunning = true;
+    updateState({ claudeRunning: true });
     startClaudeBtn.textContent = 'Running';
     window.claudeLens.pty.resize(terminal.cols, terminal.rows);
   } else {
@@ -1639,7 +1629,7 @@ urlInput.addEventListener('keypress', (e) => {
 });
 
 refreshBtn.addEventListener('click', async () => {
-  if (!browserLoaded) return;
+  if (!state.browserLoaded) return;
   loadingOverlay.classList.remove('hidden');
   setStatus('Refreshing...');
   await window.claudeLens.browser.navigate(urlInput.value);
@@ -1669,7 +1659,7 @@ restartServerBtn.addEventListener('click', async () => {
 // Viewport preset change handler (VIEWPORT_PRESETS imported from ./handlers)
 viewportSelect.addEventListener('change', () => {
   const preset = viewportSelect.value;
-  viewportWidth = VIEWPORT_PRESETS[preset] || 0;
+  updateState({ viewportWidth: VIEWPORT_PRESETS[preset] || 0 });
   updateBrowserBounds();
   updateStatusBar();
 });
@@ -1689,23 +1679,23 @@ window.claudeLens.browser.onSetViewport((width: number) => {
   const preset = presetByWidth[width];
   if (preset) {
     viewportSelect.value = preset;
-    viewportWidth = width;
+    updateState({ viewportWidth: width });
   } else {
     // Custom width - set to full and apply custom constraint
     viewportSelect.value = 'full';
-    viewportWidth = width;
+    updateState({ viewportWidth: width });
   }
 
   updateBrowserBounds();
   updateStatusBar();
   // Show user feedback
-  const widthLabel = viewportWidth > 0 ? `${viewportWidth}px` : 'Full Width';
+  const widthLabel = state.viewportWidth > 0 ? `${state.viewportWidth}px` : 'Full Width';
   setStatus(`Viewport: ${widthLabel}`);
 });
 
 // Update browser bounds on window resize (ensures bounds update after maximize/restore)
 window.addEventListener('resize', debounce(() => {
-  if (browserLoaded) {
+  if (state.browserLoaded) {
     console.log('[Viewport] Window resize detected, updating bounds');
     updateBrowserBounds();
   }
@@ -1714,7 +1704,7 @@ window.addEventListener('resize', debounce(() => {
 // Use ResizeObserver for more reliable panel size tracking
 const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
 const panelResizeObserver = new ResizeObserver(debounce(() => {
-  if (browserLoaded) {
+  if (state.browserLoaded) {
     console.log('[Viewport] Panel resize detected, updating bounds');
     updateBrowserBounds();
   }
@@ -1723,8 +1713,8 @@ panelResizeObserver.observe(browserPanel);
 
 // Reset viewport to full width when starting a new project
 window.claudeLens.browser.onResetViewport(() => {
-  console.log('[Viewport] Received resetViewport, current viewportWidth:', viewportWidth);
-  viewportWidth = 0;
+  console.log('[Viewport] Received resetViewport, current viewportWidth:', state.viewportWidth);
+  updateState({ viewportWidth: 0 });
   viewportSelect.value = 'full';
   console.log('[Viewport] Reset to full width, calling updateBrowserBounds');
   updateBrowserBounds();
@@ -1732,16 +1722,16 @@ window.claudeLens.browser.onResetViewport(() => {
 
 // Inspect mode toggle (Phase 2: sequence capture mode)
 inspectBtn.addEventListener('click', async () => {
-  if (!browserLoaded) {
+  if (!state.browserLoaded) {
     alert('Load a page first');
     return;
   }
 
-  inspectMode = !inspectMode;
+  updateState({ inspectMode: !state.inspectMode });
 
-  if (inspectMode) {
+  if (state.inspectMode) {
     // Clear previous sequence when entering inspect mode
-    clearInspectSequence();
+    clearInspectSequenceUI();
     await window.claudeLens.browser.enableInspect();
     inspectBtn.textContent = 'Stop Inspecting';
     inspectBtn.classList.add('btn-primary');
@@ -1751,8 +1741,8 @@ inspectBtn.addEventListener('click', async () => {
     inspectBtn.textContent = 'Inspect';
     inspectBtn.classList.remove('btn-primary');
     // Don't clear sequence - user may want to send it
-    if (inspectSequence.length > 0) {
-      browserHelpText.textContent = `Captured ${inspectSequence.length} • Click "Send Sequence" to send`;
+    if (state.inspectSequence.length > 0) {
+      browserHelpText.textContent = `Captured ${state.inspectSequence.length} • Click "Send Sequence" to send`;
     } else {
       browserHelpText.textContent = 'Ctrl+hover to inspect anytime';
     }
@@ -1761,13 +1751,13 @@ inspectBtn.addEventListener('click', async () => {
 
 // Freeze hover toggle function (Phase 3)
 async function toggleFreezeHover() {
-  if (!browserLoaded) {
+  if (!state.browserLoaded) {
     return;
   }
 
-  hoverFrozen = !hoverFrozen;
+  updateState({ hoverFrozen: !state.hoverFrozen });
 
-  if (hoverFrozen) {
+  if (state.hoverFrozen) {
     await window.claudeLens.browser.freezeHover();
     freezeHoverBtn.textContent = 'Unfreeze (F)';
     freezeHoverBtn.classList.add('active');
@@ -1789,7 +1779,7 @@ document.addEventListener('keydown', async (e) => {
   const isTyping = activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA';
 
   // Press F to freeze/unfreeze hover (works while hovering!)
-  if ((e.key === 'f' || e.key === 'F') && !isTyping && browserLoaded) {
+  if ((e.key === 'f' || e.key === 'F') && !isTyping && state.browserLoaded) {
     e.preventDefault();
     toggleFreezeHover();
   }
@@ -1798,7 +1788,7 @@ document.addEventListener('keydown', async (e) => {
   // Inspect mode is accessible via Ctrl+hover or the Inspect button
 
   // Ctrl+R to refresh (when not in terminal)
-  if (e.ctrlKey && (e.key === 'r' || e.key === 'R') && browserLoaded && !isTyping) {
+  if (e.ctrlKey && (e.key === 'r' || e.key === 'R') && state.browserLoaded && !isTyping) {
     e.preventDefault();
     refreshBtn.click();
   }
@@ -1809,9 +1799,9 @@ document.addEventListener('keydown', async (e) => {
 
 // Console drawer toggle
 consoleToggleBtn.addEventListener('click', () => {
-  consoleDrawerOpen = !consoleDrawerOpen;
+  updateState({ consoleDrawerOpen: !state.consoleDrawerOpen });
 
-  if (consoleDrawerOpen) {
+  if (state.consoleDrawerOpen) {
     consoleDrawer.classList.remove('hidden');
     consoleToggleBtn.classList.add('active');
     updateConsoleDrawer();
@@ -1832,31 +1822,31 @@ consoleClearBtn.addEventListener('click', () => {
 
 // Inspect sequence clear button (Phase 2)
 clearSequenceBtn.addEventListener('click', () => {
-  clearInspectSequence();
+  clearInspectSequenceUI();
   setStatus('Sequence cleared', true);
 });
 
 // Inspect sequence send button (Phase 2)
 sendSequenceBtn.addEventListener('click', async () => {
-  if (!claudeRunning) {
+  if (!state.claudeRunning) {
     alert('Start Claude first!');
     return;
   }
 
-  if (inspectSequence.length === 0) {
+  if (state.inspectSequence.length === 0) {
     alert('No interactions captured. Click elements in Inspect mode first.');
     return;
   }
 
   // Format sequence using optimized formatter (prioritizes file:line > component > selector)
-  const sequenceContext = formatSequence(inspectSequence);
+  const sequenceContext = formatSequence(state.inspectSequence);
   const fullPrompt = `Here is the captured interaction sequence:\n\n${sequenceContext}`;
   showThinking();
   const result = await window.claudeLens.sendToClaude(fullPrompt, '');
 
   if (result.success) {
     // Clear sequence after sending
-    clearInspectSequence();
+    clearInspectSequenceUI();
     terminal.focus();
     setStatus('Sequence sent to Claude', true);
   } else {
@@ -1873,20 +1863,20 @@ clearToastsBtn.addEventListener('click', () => {
 
 // Toast capture send button (Phase 4)
 sendToastsBtn.addEventListener('click', async () => {
-  if (!claudeRunning) {
+  if (!state.claudeRunning) {
     alert('Start Claude first!');
     return;
   }
 
-  if (capturedToasts.length === 0) {
+  if (state.capturedToasts.length === 0) {
     alert('No toasts captured yet.');
     return;
   }
 
   // Format lean toast context
-  let toastContext = `## Toast Notifications (${capturedToasts.length})\n\n`;
+  let toastContext = `## Toast Notifications (${state.capturedToasts.length})\n\n`;
 
-  for (const toast of capturedToasts) {
+  for (const toast of state.capturedToasts) {
     toastContext += `- [${toast.type.toUpperCase()}] ${toast.text}\n`;
   }
 
@@ -1906,7 +1896,7 @@ sendToastsBtn.addEventListener('click', async () => {
 
 // Send console to Claude button
 consoleSendBtn.addEventListener('click', async () => {
-  if (!claudeRunning) {
+  if (!state.claudeRunning) {
     alert('Start Claude first!');
     return;
   }
@@ -1934,17 +1924,17 @@ consoleSendBtn.addEventListener('click', async () => {
 sendPromptBtn.addEventListener('click', async () => {
   const prompt = promptInput.value.trim();
 
-  if (!claudeRunning) {
+  if (!state.claudeRunning) {
     alert('Start Claude first!');
     return;
   }
 
   // Require either a prompt or selected elements
-  if (!prompt && selectedElements.length === 0) {
+  if (!prompt && state.selectedElements.length === 0) {
     return;
   }
 
-  if (selectedElements.length === 0) {
+  if (state.selectedElements.length === 0) {
     // Send prompt without element context
     showThinking();
     window.claudeLens.pty.write(prompt + '\n');
@@ -1956,7 +1946,7 @@ sendPromptBtn.addEventListener('click', async () => {
   // Format element context using the optimized formatter
   // Lean mode prioritizes: file:line > component name > searchable text
   // Detailed mode includes: selector, classes, styles, position
-  const elementContext = formatElements(selectedElements, { mode: contextMode });
+  const elementContext = formatElements(state.selectedElements, { mode: state.contextMode });
 
   // If no prompt, use a default instruction
   const finalPrompt = prompt || 'Here is the element I selected:';
@@ -1970,7 +1960,7 @@ sendPromptBtn.addEventListener('click', async () => {
     setStatus('Sent to Claude', true);
     // Delay clearing context to let Claude's output appear first (smoother transition)
     setTimeout(() => {
-      selectedElements = [];
+      clearSelectedElements();
       updateElementChips();
       contextEmpty.classList.remove('hidden');
       elementInfo.classList.add('hidden');
@@ -1999,7 +1989,7 @@ promptInput.addEventListener('keypress', (e) => {
 
 // Context mode toggle (lean vs detailed)
 contextModeSelect.addEventListener('change', () => {
-  contextMode = contextModeSelect.value as ContextMode;
+  updateState({ contextMode: contextModeSelect.value as ContextMode });
 });
 
 // Copy selector button
@@ -2013,7 +2003,7 @@ copySelectorBtn.addEventListener('click', () => {
 // Copy component info button
 copyComponentBtn.addEventListener('click', () => {
   // Get the current element's component info
-  const lastElement = selectedElements[selectedElements.length - 1];
+  const lastElement = state.selectedElements[state.selectedElements.length - 1];
   if (lastElement?.framework?.components && lastElement.framework.components.length > 0) {
     const comp = lastElement.framework.components[0];
     let copyText = `<${comp?.name} />`;
@@ -2043,54 +2033,54 @@ function setStatus(text: string, connected = false) {
 function showThinking(): void {
   // Show thinking indicator after a brief delay (500ms)
   // This prevents flashing for instant responses
-  if (thinkingTimeout) clearTimeout(thinkingTimeout);
-  thinkingTimeout = setTimeout(() => {
-    isThinking = true;
+  if (state.thinkingTimeout) clearTimeout(state.thinkingTimeout);
+  const timeout = setTimeout(() => {
+    updateState({ isThinking: true });
     thinkingIndicator.classList.remove('hidden');
   }, 500);
+  updateState({ thinkingTimeout: timeout });
 }
 
 function hideThinking(): void {
-  if (thinkingTimeout) {
-    clearTimeout(thinkingTimeout);
-    thinkingTimeout = null;
+  if (state.thinkingTimeout) {
+    clearTimeout(state.thinkingTimeout);
   }
-  isThinking = false;
+  updateState({ thinkingTimeout: null, isThinking: false });
   thinkingIndicator.classList.add('hidden');
 }
 
 // Status bar update helper
 function updateStatusBar(): void {
   // Project name
-  if (currentProjectName) {
-    projectStatus.textContent = currentProjectName;
+  if (state.currentProjectName) {
+    projectStatus.textContent = state.currentProjectName;
     projectStatus.classList.remove('hidden');
   } else {
     projectStatus.classList.add('hidden');
   }
 
   // Server status
-  if (currentServerPort > 0) {
-    const typeLabel = currentServerType === 'dev' ? 'Dev' : 'Static';
-    serverStatus.textContent = `${typeLabel} :${currentServerPort}`;
+  if (state.currentServerPort > 0) {
+    const typeLabel = state.currentServerType === 'dev' ? 'Dev' : 'Static';
+    serverStatus.textContent = `${typeLabel} :${state.currentServerPort}`;
     serverStatus.classList.remove('hidden');
   } else {
     serverStatus.classList.add('hidden');
   }
 
   // Playwright status
-  if (browserLoaded) {
-    playwrightStatus.textContent = playwrightConnected ? '✓ Playwright' : '○ Playwright';
-    playwrightStatus.classList.toggle('success', playwrightConnected);
-    playwrightStatus.classList.toggle('warning', !playwrightConnected);
+  if (state.browserLoaded) {
+    playwrightStatus.textContent = state.playwrightConnected ? '✓ Playwright' : '○ Playwright';
+    playwrightStatus.classList.toggle('success', state.playwrightConnected);
+    playwrightStatus.classList.toggle('warning', !state.playwrightConnected);
     playwrightStatus.classList.remove('hidden');
   } else {
     playwrightStatus.classList.add('hidden');
   }
 
   // Viewport status
-  if (viewportWidth > 0) {
-    viewportStatus.textContent = `${viewportWidth}px`;
+  if (state.viewportWidth > 0) {
+    viewportStatus.textContent = `${state.viewportWidth}px`;
     viewportStatus.classList.remove('hidden');
   } else {
     viewportStatus.classList.add('hidden');
@@ -2099,8 +2089,8 @@ function updateStatusBar(): void {
 
 // Server status click handler - copy URL to clipboard
 serverStatus.addEventListener('click', async () => {
-  if (currentServerPort > 0) {
-    const url = `http://localhost:${currentServerPort}`;
+  if (state.currentServerPort > 0) {
+    const url = `http://localhost:${state.currentServerPort}`;
     try {
       await navigator.clipboard.writeText(url);
       setStatus('URL copied!', true);
@@ -2167,7 +2157,7 @@ terminalEl.addEventListener('contextmenu', (e) => {
         await navigator.clipboard.writeText(selection);
         setStatus('Copied to clipboard');
         setTimeout(() => {
-          if (browserLoaded) setStatus('Connected', true);
+          if (state.browserLoaded) setStatus('Connected', true);
         }, 2000);
       }
       hideContextMenu();
@@ -2184,11 +2174,11 @@ terminalEl.addEventListener('contextmenu', (e) => {
     justify-content: space-between;
     align-items: center;
     padding: 6px 12px;
-    cursor: ${claudeRunning ? 'pointer' : 'default'};
-    opacity: ${claudeRunning ? '1' : '0.5'};
+    cursor: ${state.claudeRunning ? 'pointer' : 'default'};
+    opacity: ${state.claudeRunning ? '1' : '0.5'};
     font-size: 12px;
   `;
-  if (claudeRunning) {
+  if (state.claudeRunning) {
     pasteItem.addEventListener('mouseenter', () => {
       pasteItem.style.background = 'var(--bg-hover)';
     });
@@ -2206,7 +2196,7 @@ terminalEl.addEventListener('contextmenu', (e) => {
           window.claudeLens.pty.write(`@${result.path} `);
           setStatus('Image pasted', true);
           setTimeout(() => {
-            if (browserLoaded) setStatus('Connected', true);
+            if (state.browserLoaded) setStatus('Connected', true);
           }, 2000);
         } else {
           setStatus(`Image error: ${result.error}`);

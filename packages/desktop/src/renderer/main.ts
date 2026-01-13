@@ -19,7 +19,7 @@ import {
   type ContextMode,
 } from './context-formatter';
 import { TERMINAL_OPTIONS, substituteChars } from './terminal';
-import { debounce, waitForFonts, runFontDiagnostics, getEl, copyToClipboard } from './utils';
+import { debounce, waitForFonts, runFontDiagnostics, copyToClipboard } from './utils';
 import { VIEWPORT_PRESETS } from './handlers';
 import {
   state,
@@ -36,122 +36,110 @@ import {
   DRAWER_HEIGHT,
   type ConsoleMessage,
 } from './state';
-
-// Elements - Header
-const urlInput = getEl<HTMLInputElement>('urlInput');
-const goBtn = getEl<HTMLButtonElement>('goBtn');
-const refreshBtn = getEl<HTMLButtonElement>('refreshBtn');
-refreshBtn.disabled = true; // Disabled until a page is loaded
-const restartServerBtn = getEl<HTMLButtonElement>('restartServerBtn');
-const statusEl = getEl<HTMLSpanElement>('status');
-const viewportSelect = getEl<HTMLSelectElement>('viewportSelect');
-const projectDropdown = getEl<HTMLSelectElement>('projectDropdown');
-
-// Elements - Panels
-const placeholder = getEl<HTMLDivElement>('placeholder');
-const loadingOverlay = getEl<HTMLDivElement>('loadingOverlay');
-const terminalEl = getEl<HTMLDivElement>('terminal');
-const startClaudeBtn = getEl<HTMLButtonElement>('startClaudeBtn');
-const inspectBtn = getEl<HTMLButtonElement>('inspectBtn');
-const browserHelpText = getEl<HTMLSpanElement>('browserHelpText');
-
-// Elements - Context Panel
-const contextEmpty = getEl<HTMLDivElement>('contextEmpty');
-const descriptionInfo = getEl<HTMLDivElement>('descriptionInfo');
-const elementDescription = getEl<HTMLSpanElement>('elementDescription');
-const elementInfo = getEl<HTMLDivElement>('elementInfo');
-const hierarchyInfo = getEl<HTMLDivElement>('hierarchyInfo');
-const hierarchyList = getEl<HTMLDivElement>('hierarchyList');
-const pathInfo = getEl<HTMLDivElement>('pathInfo');
-const attributesInfo = getEl<HTMLDivElement>('attributesInfo');
-const stylesInfo = getEl<HTMLDivElement>('stylesInfo');
-const positionInfo = getEl<HTMLDivElement>('positionInfo');
-const textInfo = getEl<HTMLDivElement>('textInfo');
-
-// Elements - Console Drawer (browser panel)
-const consoleToggleBtn = getEl<HTMLButtonElement>('consoleToggleBtn');
-const consoleDrawer = getEl<HTMLDivElement>('consoleDrawer');
-const consoleDrawerMessages = getEl<HTMLDivElement>('consoleDrawerMessages');
-const consoleDrawerCount = getEl<HTMLSpanElement>('consoleDrawerCount');
-const consoleClearBtn = getEl<HTMLButtonElement>('consoleClearBtn');
-const consoleSendBtn = getEl<HTMLButtonElement>('consoleSendBtn');
-
-const elementTag = getEl<HTMLElement>('elementTag');
-const elementPath = getEl<HTMLElement>('elementPath');
-const attributesList = getEl<HTMLDivElement>('attributesList');
-const stylesList = getEl<HTMLDivElement>('stylesList');
-const positionData = getEl<HTMLDivElement>('positionData');
-const innerText = getEl<HTMLSpanElement>('innerText');
-
-// Elements - Component Info
-const componentInfo = getEl<HTMLDivElement>('componentInfo');
-const frameworkBadge = getEl<HTMLSpanElement>('frameworkBadge');
-const componentList = getEl<HTMLDivElement>('componentList');
-
-// Elements - Source Info
-const sourceInfo = getEl<HTMLDivElement>('sourceInfo');
-const sourceStatus = getEl<HTMLSpanElement>('sourceStatus');
-const sourceAvailable = getEl<HTMLDivElement>('sourceAvailable');
-const sourceLocation = getEl<HTMLElement>('sourceLocation');
-const copySourceBtn = getEl<HTMLButtonElement>('copySourceBtn');
-const sourceUnavailable = getEl<HTMLDivElement>('sourceUnavailable');
-const sourceNoFramework = getEl<HTMLDivElement>('sourceNoFramework');
-
-// Elements - Chips and Prompt
-const elementChips = getEl<HTMLDivElement>('elementChips');
-const promptInput = getEl<HTMLTextAreaElement>('promptInput');
-const sendPromptBtn = getEl<HTMLButtonElement>('sendPromptBtn');
-const contextModeSelect = getEl<HTMLSelectElement>('contextModeSelect');
-
-// Elements - Inspect Sequence (Phase 2)
-const inspectSequenceInfo = getEl<HTMLDivElement>('inspectSequenceInfo');
-const sequenceCount = getEl<HTMLSpanElement>('sequenceCount');
-const inspectSequenceList = getEl<HTMLDivElement>('inspectSequenceList');
-const clearSequenceBtn = getEl<HTMLButtonElement>('clearSequenceBtn');
-const sendSequenceBtn = getEl<HTMLButtonElement>('sendSequenceBtn');
-
-// Elements - Form State & Freeze Hover (Phase 3)
-const formStateInfo = getEl<HTMLDivElement>('formStateInfo');
-const formStateContent = getEl<HTMLDivElement>('formStateContent');
-const validationBadge = getEl<HTMLSpanElement>('validationBadge');
-const freezeHoverBtn = getEl<HTMLButtonElement>('freezeHoverBtn');
-
-// Elements - Phase 4: Edge Cases
-const overlayInfo = getEl<HTMLDivElement>('overlayInfo');
-const overlayContent = getEl<HTMLDivElement>('overlayContent');
-const overlayTypeBadge = getEl<HTMLSpanElement>('overlayTypeBadge');
-const stackingInfo = getEl<HTMLDivElement>('stackingInfo');
-const stackingContent = getEl<HTMLDivElement>('stackingContent');
-const zIndexBadge = getEl<HTMLSpanElement>('zIndexBadge');
-const scrollInfo = getEl<HTMLDivElement>('scrollInfo');
-const scrollContent = getEl<HTMLDivElement>('scrollContent');
-const visibilityBadge = getEl<HTMLSpanElement>('visibilityBadge');
-const iframeInfo = getEl<HTMLDivElement>('iframeInfo');
-const iframeContent = getEl<HTMLDivElement>('iframeContent');
-const shadowDOMInfo = getEl<HTMLDivElement>('shadowDOMInfo');
-const shadowDOMContent = getEl<HTMLDivElement>('shadowDOMContent');
-const toastCapturesInfo = getEl<HTMLDivElement>('toastCapturesInfo');
-const toastCapturesList = getEl<HTMLDivElement>('toastCapturesList');
-const toastCount = getEl<HTMLSpanElement>('toastCount');
-const clearToastsBtn = getEl<HTMLButtonElement>('clearToastsBtn');
-const sendToastsBtn = getEl<HTMLButtonElement>('sendToastsBtn');
-
-// Elements - Resizers
-const resizer1 = getEl<HTMLDivElement>('resizer1');
-const resizer2 = getEl<HTMLDivElement>('resizer2');
-
-// Elements - Copy Buttons
-const copySelectorBtn = getEl<HTMLButtonElement>('copySelectorBtn');
-const copyComponentBtn = getEl<HTMLButtonElement>('copyComponentBtn');
-
-// Elements - Thinking Indicator
-const thinkingIndicator = getEl<HTMLSpanElement>('thinkingIndicator');
-
-// Elements - Enhanced Status Bar
-const projectStatus = getEl<HTMLSpanElement>('projectStatus');
-const serverStatus = getEl<HTMLSpanElement>('serverStatus');
-const playwrightStatus = getEl<HTMLSpanElement>('playwrightStatus');
-const viewportStatus = getEl<HTMLSpanElement>('viewportStatus');
+import {
+  // Header
+  urlInput,
+  goBtn,
+  refreshBtn,
+  restartServerBtn,
+  statusEl,
+  viewportSelect,
+  projectDropdown,
+  // Panels
+  placeholder,
+  loadingOverlay,
+  terminalEl,
+  startClaudeBtn,
+  inspectBtn,
+  browserHelpText,
+  // Context Panel - Core
+  contextEmpty,
+  descriptionInfo,
+  elementDescription,
+  elementInfo,
+  hierarchyInfo,
+  hierarchyList,
+  pathInfo,
+  attributesInfo,
+  stylesInfo,
+  positionInfo,
+  textInfo,
+  // Context Panel - Element Details
+  elementTag,
+  elementPath,
+  attributesList,
+  stylesList,
+  positionData,
+  innerText,
+  // Context Panel - Component Info
+  componentInfo,
+  frameworkBadge,
+  componentList,
+  // Context Panel - Source Info
+  sourceInfo,
+  sourceStatus,
+  sourceAvailable,
+  sourceLocation,
+  copySourceBtn,
+  sourceUnavailable,
+  sourceNoFramework,
+  // Context Panel - Chips and Prompt
+  elementChips,
+  promptInput,
+  sendPromptBtn,
+  contextModeSelect,
+  // Console Drawer
+  consoleToggleBtn,
+  consoleDrawer,
+  consoleDrawerMessages,
+  consoleDrawerCount,
+  consoleClearBtn,
+  consoleSendBtn,
+  // Inspect Sequence
+  inspectSequenceInfo,
+  sequenceCount,
+  inspectSequenceList,
+  clearSequenceBtn,
+  sendSequenceBtn,
+  // Form State & Freeze Hover
+  formStateInfo,
+  formStateContent,
+  validationBadge,
+  freezeHoverBtn,
+  // Phase 4: Edge Cases
+  overlayInfo,
+  overlayContent,
+  overlayTypeBadge,
+  stackingInfo,
+  stackingContent,
+  zIndexBadge,
+  scrollInfo,
+  scrollContent,
+  visibilityBadge,
+  iframeInfo,
+  iframeContent,
+  shadowDOMInfo,
+  shadowDOMContent,
+  // Toast Captures
+  toastCapturesInfo,
+  toastCapturesList,
+  toastCount,
+  clearToastsBtn,
+  sendToastsBtn,
+  // Resizers
+  resizer1,
+  resizer2,
+  // Copy Buttons
+  copySelectorBtn,
+  copyComponentBtn,
+  // Thinking Indicator
+  thinkingIndicator,
+  // Enhanced Status Bar
+  projectStatus,
+  serverStatus,
+  playwrightStatus,
+  viewportStatus,
+} from './setup';
 
 // Terminal setup - configuration from terminal module
 const terminal = new Terminal(TERMINAL_OPTIONS);

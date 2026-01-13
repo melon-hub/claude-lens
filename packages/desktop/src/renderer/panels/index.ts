@@ -34,3 +34,6 @@ export {
   setContextPanelCallbacks,
   resetContextPanelUI,
 } from './context-panel';
+
+// Inspect sequence
+export { updateInspectSequenceUI, clearInspectSequenceUI } from './inspect-sequence';

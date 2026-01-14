@@ -84,7 +84,17 @@ export class PlaywrightAdapter {
 
       console.log('[PlaywrightAdapter] Connected successfully to page:', this.page.url());
     } catch (error) {
-      console.error('[PlaywrightAdapter] Connection failed:', error);
+      const err = error as Error;
+      console.error('[PlaywrightAdapter] Connection failed:', err.message);
+
+      // Provide helpful guidance for common failures
+      if (err.message.includes('Timeout') || err.name === 'TimeoutError') {
+        console.error('[PlaywrightAdapter] Timeout connecting to CDP. This usually means:');
+        console.error('  1. Zombie Electron processes are holding port 9222');
+        console.error('  2. Fix: Run "fuser -k 9222/tcp" (Linux/WSL) or kill Electron processes');
+        console.error('  3. Then restart the app');
+      }
+
       await this.disconnect();
       throw error;
     }

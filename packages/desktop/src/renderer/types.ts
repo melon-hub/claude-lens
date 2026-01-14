@@ -165,12 +165,9 @@ export interface ClaudeLensAPI {
     updateBounds: (width: number, drawerHeight?: number, panelWidth?: number) => Promise<void>;
     enableInspect: () => Promise<{ success: boolean; error?: string }>;
     disableInspect: () => Promise<void>;
-    freezeHover: () => Promise<{ success: boolean; error?: string }>;
-    unfreezeHover: () => Promise<void>;
     setVisible: (visible: boolean) => Promise<void>;
     onElementSelected: (callback: (element: ElementInfo) => void) => void;
     onConsoleMessage: (callback: (msg: { level: string; message: string; timestamp: number }) => void) => void;
-    onFreezeToggle: (callback: () => void) => void;
     onToastCaptured: (callback: (toast: ToastCapture) => void) => void;
     onPlaywrightConnecting: (callback: () => void) => void;
     onPlaywrightConnected: (callback: () => void) => void;

@@ -15,4 +15,4 @@ export {
 export { updateProjectDropdown } from './project';
 export { setupSendHandlers } from './send-handlers';
 export { setupNavigationHandlers, setupViewportHandlers } from './browser-controls';
-export { setupInspectHandlers, setupKeyboardShortcuts, toggleFreezeHover } from './inspect';
+export { setupInspectHandlers, setupKeyboardShortcuts } from './inspect';

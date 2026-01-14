@@ -1366,12 +1366,6 @@ body.drag-over::after {
   to { transform: rotate(360deg); }
 }
 
-/* Freeze Hover Button Active State */
-#freezeHoverBtn.active {
-  background: #f59e0b;
-  color: white;
-}
-
 /* Phase 4: Overlay/Modal Styles */
 .overlay-badge {
   padding: 2px 8px;

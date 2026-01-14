@@ -15,6 +15,21 @@
     window.__claudeLensCleanup();
   }
 
+  // Inject thin scrollbar styles (less obtrusive than default Chrome scrollbar)
+  let scrollbarStyle = document.getElementById('claude-lens-scrollbar-style');
+  if (!scrollbarStyle) {
+    scrollbarStyle = document.createElement('style');
+    scrollbarStyle.id = 'claude-lens-scrollbar-style';
+    scrollbarStyle.textContent = `
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(100, 100, 100, 0.3); border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(100, 100, 100, 0.5); }
+      ::-webkit-scrollbar-corner { background: transparent; }
+    `;
+    document.head.appendChild(scrollbarStyle);
+  }
+
   // State
   window.__claudeLensInspectMode = false; // Button toggle state
 

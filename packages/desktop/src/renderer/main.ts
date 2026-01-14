@@ -22,7 +22,6 @@ import {
   setupViewportHandlers,
   setupInspectHandlers,
   setupKeyboardShortcuts,
-  toggleFreezeHover,
 } from './handlers';
 import { setStatus, hideThinking, updateStatusBar } from './ui-helpers';
 import { updateBrowserBounds, setBrowserLoaded } from './browser-helpers';
@@ -221,11 +220,6 @@ async function init() {
   // Listen for console messages from BrowserView
   window.claudeLens.browser.onConsoleMessage((msg) => {
     addConsoleMessage(msg);
-  });
-
-  // Listen for freeze toggle from F key in BrowserView
-  window.claudeLens.browser.onFreezeToggle(() => {
-    toggleFreezeHover();
   });
 
   // Listen for toast captures (Phase 4)

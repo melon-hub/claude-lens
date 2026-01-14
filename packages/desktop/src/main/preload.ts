@@ -7,7 +7,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 // App version from package.json
-const APP_VERSION = '0.1.7';
+const APP_VERSION = '0.2.2';
 
 // Expose protected APIs to renderer
 contextBridge.exposeInMainWorld('claudeLens', {
@@ -46,8 +46,6 @@ contextBridge.exposeInMainWorld('claudeLens', {
     updateBounds: (width: number, drawerHeight?: number, panelWidth?: number) => ipcRenderer.invoke('browser:updateBounds', width, drawerHeight || 0, panelWidth || width),
     enableInspect: () => ipcRenderer.invoke('browser:enableInspect'),
     disableInspect: () => ipcRenderer.invoke('browser:disableInspect'),
-    freezeHover: () => ipcRenderer.invoke('browser:freezeHover'),
-    unfreezeHover: () => ipcRenderer.invoke('browser:unfreezeHover'),
     setVisible: (visible: boolean) => ipcRenderer.invoke('browser:setVisible', visible),
     onElementSelected: (callback: (element: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, element: unknown) => callback(element);
@@ -58,11 +56,6 @@ contextBridge.exposeInMainWorld('claudeLens', {
       const handler = (_event: Electron.IpcRendererEvent, msg: { level: string; message: string; timestamp: number }) => callback(msg);
       ipcRenderer.on('console-message', handler);
       return () => ipcRenderer.removeListener('console-message', handler);
-    },
-    onFreezeToggle: (callback: () => void) => {
-      const handler = () => callback();
-      ipcRenderer.on('freeze-toggle', handler);
-      return () => ipcRenderer.removeListener('freeze-toggle', handler);
     },
     onToastCaptured: (callback: (toast: { text: string; type: string; timestamp: number }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, toast: { text: string; type: string; timestamp: number }) => callback(toast);
@@ -202,12 +195,9 @@ export interface ClaudeLensAPI {
     updateBounds: (width: number, drawerHeight?: number) => Promise<void>;
     enableInspect: () => Promise<{ success: boolean; error?: string }>;
     disableInspect: () => Promise<void>;
-    freezeHover: () => Promise<void>;
-    unfreezeHover: () => Promise<void>;
     setVisible: (visible: boolean) => Promise<void>;
     onElementSelected: (callback: (element: unknown) => void) => CleanupFn;
     onConsoleMessage: (callback: (msg: { level: string; message: string; timestamp: number }) => void) => CleanupFn;
-    onFreezeToggle: (callback: () => void) => CleanupFn;
     onToastCaptured: (callback: (toast: { text: string; type: string; timestamp: number }) => void) => CleanupFn;
     onPlaywrightConnecting: (callback: () => void) => CleanupFn;
     onPlaywrightConnected: (callback: () => void) => CleanupFn;

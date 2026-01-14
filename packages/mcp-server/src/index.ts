@@ -486,11 +486,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'claude_lens/evaluate',
         description:
-          'Execute JavaScript in the browser and return the result. Use for complex queries or custom logic.',
+          'Run JavaScript in the browser context. Can query DOM, read computed styles, access window/document, and return structured data. ' +
+          'Supports multiple operations in one call. ' +
+          'Note: For form inputs in React/Vue, prefer fill() which triggers change events properly.',
         inputSchema: {
           type: 'object',
           properties: {
-            script: { type: 'string', description: 'JavaScript code to execute' },
+            script: {
+              type: 'string',
+              description:
+                'JavaScript to execute. Wrap in IIFE for multiple statements: (() => { ...code...; return result; })(). ' +
+                'Has access to document, window, and all DOM APIs.',
+            },
           },
           required: ['script'],
         },
@@ -573,7 +580,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: [
           {
             type: 'text',
-            text: 'Claude Lens is not connected. Please open the Claude Lens panel in VS Code (Command Palette > "Claude Lens: Open Browser Panel") and navigate to a localhost URL first.',
+            text: 'Claude Lens is not connected. Please open the Claude Lens desktop app, load a project, and ensure Playwright is connected (check status bar). If the app is running but not connected, try restarting it - zombie processes may be blocking port 9222.',
           },
         ],
         isError: true,

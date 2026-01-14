@@ -53,7 +53,7 @@ Use the `claude_lens/*` MCP tools for browser automation:
 | `claude_lens/go_back` | Browser back button |
 | `claude_lens/go_forward` | Browser forward button |
 | `claude_lens/handle_dialog` | Accept or dismiss alert/confirm dialogs |
-| `claude_lens/evaluate` | Execute custom JavaScript |
+| `claude_lens/evaluate` | Run JS in browser (query DOM, read styles, multiple ops in one call) |
 
 ### Development Tools
 | Tool | Purpose |

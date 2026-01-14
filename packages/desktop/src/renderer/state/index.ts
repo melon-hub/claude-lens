@@ -27,7 +27,6 @@ export interface AppState {
   browserLoaded: boolean;
   inspectMode: boolean;
   consoleDrawerOpen: boolean;
-  hoverFrozen: boolean;
   isThinking: boolean;
 
   // Element selection
@@ -77,7 +76,6 @@ const initialState: AppState = {
   browserLoaded: false,
   inspectMode: false,
   consoleDrawerOpen: false,
-  hoverFrozen: false,
   isThinking: false,
   selectedElements: [],
   contextMode: 'lean',
@@ -178,9 +176,6 @@ export const state = {
   },
   get consoleDrawerOpen() {
     return currentState.consoleDrawerOpen;
-  },
-  get hoverFrozen() {
-    return currentState.hoverFrozen;
   },
   get isThinking() {
     return currentState.isThinking;

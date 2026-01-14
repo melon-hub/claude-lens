@@ -108,13 +108,12 @@ export const clearSequenceBtn = getEl<HTMLButtonElement>('clearSequenceBtn');
 export const sendSequenceBtn = getEl<HTMLButtonElement>('sendSequenceBtn');
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Form State & Freeze Hover (Phase 3)
+// Form State (Phase 3)
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const formStateInfo = getEl<HTMLDivElement>('formStateInfo');
 export const formStateContent = getEl<HTMLDivElement>('formStateContent');
 export const validationBadge = getEl<HTMLSpanElement>('validationBadge');
-export const freezeHoverBtn = getEl<HTMLButtonElement>('freezeHoverBtn');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase 4: Edge Cases

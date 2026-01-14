@@ -176,75 +176,20 @@ async function enhanceElementWithFramework(selector: string): Promise<{ framewor
   if (!browserView || !selector) return null;
 
   try {
-    // Run React/Vue detection in the browser
+    // Ensure framework detection script is loaded
+    await injectFrameworkDetection();
+
+    // Run React/Vue detection using shared helpers
     const result = await browserView.webContents.executeJavaScript(`
       (function() {
         const el = document.querySelector(${JSON.stringify(selector)});
         if (!el) return null;
 
-        // Detect React component info - walks up DOM tree if no fiber found on element
-        function getReactInfo(element) {
-          let domNode = element;
-          let fiber = null;
-          let domDepth = 0;
-          const maxDomDepth = 10;
+        const detection = window.__claudeLensFrameworkDetection;
+        if (!detection) return null;
 
-          while (domNode && domDepth < maxDomDepth) {
-            const fiberKey = Object.keys(domNode).find(key =>
-              key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')
-            );
-            if (fiberKey && domNode[fiberKey]) {
-              fiber = domNode[fiberKey];
-              break;
-            }
-            domNode = domNode.parentElement;
-            domDepth++;
-          }
-
-          if (!fiber) return null;
-
-          let current = fiber;
-          const components = [];
-          let depth = 0;
-          const maxDepth = 20;
-
-          while (current && depth < maxDepth) {
-            depth++;
-            const type = current.type;
-
-            if (type && typeof type === 'function') {
-              const name = type.displayName || type.name || 'Anonymous';
-              if (!name.startsWith('_') && name !== 'Anonymous') {
-                const componentInfo = { name };
-                if (current._debugSource) {
-                  componentInfo.source = {
-                    fileName: current._debugSource.fileName,
-                    lineNumber: current._debugSource.lineNumber,
-                  };
-                }
-                components.push(componentInfo);
-                if (components.length >= 3) break;
-              }
-            }
-            current = current.return;
-          }
-
-          return components.length > 0 ? { components, framework: 'React' } : null;
-        }
-
-        // Detect Vue component info
-        function getVueInfo(element) {
-          const vueKey = Object.keys(element).find(key => key.startsWith('__vue'));
-          if (!vueKey) return null;
-          const vue = element[vueKey];
-          if (!vue) return null;
-          const name = vue.$options?.name || vue.$.type?.name || 'VueComponent';
-          return { framework: 'Vue', components: [{ name }] };
-        }
-
-        const reactInfo = getReactInfo(el);
-        const vueInfo = !reactInfo ? getVueInfo(el) : null;
-        return { framework: reactInfo || vueInfo || null };
+        const frameworkInfo = detection.getFrameworkInfo(el);
+        return { framework: frameworkInfo };
       })()
     `);
 
@@ -1209,6 +1154,29 @@ async function injectInspectSystem() {
   await browserView.webContents.executeJavaScript(script);
 }
 
+// Framework detection helpers (React/Vue) - shared between multiple handlers
+let frameworkDetectionScript: string | null = null;
+
+async function loadFrameworkDetectionScript(): Promise<string> {
+  if (frameworkDetectionScript) return frameworkDetectionScript;
+
+  const scriptPath = path.join(__dirname, 'inject', 'framework-detection.js');
+  try {
+    frameworkDetectionScript = await fsPromises.readFile(scriptPath, 'utf-8');
+    return frameworkDetectionScript;
+  } catch (error) {
+    console.error('[FrameworkDetection] Failed to load framework-detection.js from:', scriptPath, error);
+    return '(function() { window.__claudeLensFrameworkDetection = { getFrameworkInfo: () => null }; })()';
+  }
+}
+
+async function injectFrameworkDetection(): Promise<void> {
+  if (!browserView) return;
+
+  const script = await loadFrameworkDetectionScript();
+  await browserView.webContents.executeJavaScript(script);
+}
+
 // IPC Handlers
 
 // PTY (Claude Code) handlers
@@ -1327,6 +1295,9 @@ ipcMain.handle('browser:inspect', async (_event, x: number, y: number) => {
   }
 
   try {
+    // Ensure framework detection script is loaded
+    await injectFrameworkDetection();
+
     // Execute JS in the browser to find element at coordinates
     // x and y are validated as finite numbers above, safe to interpolate
     const result = await browserView.webContents.executeJavaScript(`
@@ -1369,102 +1340,9 @@ ipcMain.handle('browser:inspect', async (_event, x: number, y: number) => {
           return parts.join(' > ');
         }
 
-        // Detect React component info - walks up DOM tree if no fiber found on element
-        function getReactInfo(element) {
-          // Walk up DOM tree to find element with React fiber (max 10 levels)
-          let domNode = element;
-          let fiber = null;
-          let domDepth = 0;
-          const maxDomDepth = 10;
-
-          while (domNode && domDepth < maxDomDepth) {
-            const fiberKey = Object.keys(domNode).find(key =>
-              key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')
-            );
-            if (fiberKey && domNode[fiberKey]) {
-              fiber = domNode[fiberKey];
-              break;
-            }
-            domNode = domNode.parentElement;
-            domDepth++;
-          }
-
-          if (!fiber) return null;
-
-          // Walk up fiber tree to find component (function/class, not host elements)
-          let current = fiber;
-          const components = [];
-          let depth = 0;
-          const maxDepth = 20; // Prevent infinite loops
-
-          while (current && depth < maxDepth) {
-            depth++;
-            const type = current.type;
-
-            if (type && typeof type === 'function') {
-              const name = type.displayName || type.name || 'Anonymous';
-              // Skip internal React components
-              if (!name.startsWith('_') && name !== 'Anonymous') {
-                const componentInfo = { name };
-
-                // Try to get source location from _source (dev mode only)
-                if (current._debugSource) {
-                  componentInfo.source = {
-                    fileName: current._debugSource.fileName,
-                    lineNumber: current._debugSource.lineNumber,
-                  };
-                }
-
-                // Get props (limited, avoid circular refs)
-                if (current.memoizedProps) {
-                  const props = {};
-                  const propKeys = Object.keys(current.memoizedProps).slice(0, 10);
-                  for (const key of propKeys) {
-                    const val = current.memoizedProps[key];
-                    if (val !== null && typeof val !== 'function' && typeof val !== 'object') {
-                      props[key] = val;
-                    } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
-                      props[key] = '{...}';
-                    } else if (Array.isArray(val)) {
-                      props[key] = '[...]';
-                    } else if (typeof val === 'function') {
-                      props[key] = 'fn()';
-                    }
-                  }
-                  if (Object.keys(props).length > 0) {
-                    componentInfo.props = props;
-                  }
-                }
-
-                components.push(componentInfo);
-                if (components.length >= 3) break; // Get up to 3 parent components
-              }
-            }
-            current = current.return;
-          }
-
-          return components.length > 0 ? { components, framework: 'React' } : null;
-        }
-
-        // Detect Vue component info
-        function getVueInfo(element) {
-          const vueKey = Object.keys(element).find(key => key.startsWith('__vue'));
-          if (!vueKey) return null;
-
-          const vue = element[vueKey];
-          if (!vue) return null;
-
-          const name = vue.$options?.name || vue.$.type?.name || 'VueComponent';
-          return {
-            framework: 'Vue',
-            components: [{ name }]
-          };
-        }
-
-        // Get framework info
-        const reactInfo = getReactInfo(el);
-        const vueInfo = !reactInfo ? getVueInfo(el) : null;
-        const frameworkInfo = reactInfo || vueInfo || null;
+        // Get framework info using shared detection helpers
+        const detection = window.__claudeLensFrameworkDetection;
+        const frameworkInfo = detection ? detection.getFrameworkInfo(el) : null;
 
         return {
           tagName: el.tagName.toLowerCase(),

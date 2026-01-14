@@ -148,7 +148,7 @@ export interface ClaudeLensAPI {
   version: string;
   pty: {
     start: () => Promise<{ success: boolean; error?: string }>;
-    write: (data: string) => Promise<{ success: boolean }>;
+    write: (data: string) => void;
     resize: (cols: number, rows: number) => Promise<void>;
     onData: (callback: (data: string) => void) => void;
     onExit: (callback: (code: number) => void) => void;

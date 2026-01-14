@@ -1235,10 +1235,10 @@ ipcMain.handle('pty:start', async () => {
   }
 });
 
-ipcMain.handle('pty:write', async (_event, data: string) => {
-  if (!ptyManager) return { success: false, error: 'PTY manager not initialized' };
+// Use ipcMain.on (not handle) for fire-and-forget - no round-trip latency on keystrokes
+ipcMain.on('pty:write', (_event, data: string) => {
+  if (!ptyManager) return;
   ptyManager.write(data);
-  return { success: true };
 });
 
 ipcMain.handle('pty:resize', async (_event, cols: number, rows: number) => {

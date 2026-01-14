@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('claudeLens', {
   // PTY (Claude Code) APIs
   pty: {
     start: () => ipcRenderer.invoke('pty:start'),
-    write: (data: string) => ipcRenderer.invoke('pty:write', data),
+    write: (data: string) => ipcRenderer.send('pty:write', data),
     resize: (cols: number, rows: number) => ipcRenderer.invoke('pty:resize', cols, rows),
     onData: (callback: (data: string) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: string) => callback(data);

@@ -422,8 +422,8 @@ function createMenu(): void {
     {
       label: 'View',
       submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
+        // Note: 'reload' and 'forceReload' roles removed - they reload the entire app
+        // which kills Claude and the terminal. Use Ctrl+R for BrowserView reload instead.
         { role: 'toggleDevTools' },
         { type: 'separator' },
         { role: 'resetZoom' },
@@ -1278,6 +1278,16 @@ ipcMain.handle('browser:navigate', async (_event, url: string) => {
     // Inject toast watcher (Phase 4)
     await injectToastWatcher();
 
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+});
+
+ipcMain.handle('browser:reload', async () => {
+  if (!browserView) return { success: false, error: 'No browser view' };
+  try {
+    browserView.webContents.reload();
     return { success: true };
   } catch (error) {
     return { success: false, error: String(error) };

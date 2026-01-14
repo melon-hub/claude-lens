@@ -10,7 +10,6 @@ import {
   inspectBtn,
   freezeHoverBtn,
   browserHelpText,
-  refreshBtn,
 } from '../setup';
 
 /**
@@ -87,10 +86,10 @@ export function setupKeyboardShortcuts(): void {
       toggleFreezeHover();
     }
 
-    // Ctrl+R to refresh (when not in terminal)
-    if (e.ctrlKey && (e.key === 'r' || e.key === 'R') && state.browserLoaded && !isTyping) {
+    // Ctrl+R to reload browser page (always prevent to block Electron's window reload)
+    if (e.ctrlKey && (e.key === 'r' || e.key === 'R') && !isTyping) {
       e.preventDefault();
-      refreshBtn.click();
+      window.claudeLens.browser.reload();
     }
   });
 }

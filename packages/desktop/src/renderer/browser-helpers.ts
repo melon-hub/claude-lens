@@ -27,8 +27,6 @@ export function updateBrowserBounds(): void {
   const panelWidth = browserPanel.offsetWidth;
   const effectiveWidth = state.viewportWidth > 0 ? Math.min(state.viewportWidth, panelWidth) : panelWidth;
 
-  console.log('[Viewport] updateBrowserBounds:', { viewportWidth: state.viewportWidth, panelWidth, effectiveWidth, drawerHeight });
-
   // Pass both panelWidth and effectiveWidth so main can center the browser
   window.claudeLens.browser.updateBounds(effectiveWidth, drawerHeight, panelWidth);
 }

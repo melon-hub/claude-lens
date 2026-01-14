@@ -33,12 +33,14 @@ export function truncateText(text: string, maxLength = 200): string {
 
 /**
  * Format props for display (limited entries)
+ * Note: Output contains HTML - keys and values are escaped for XSS prevention
  */
 export function formatProps(props: Record<string, unknown>, maxEntries = 3): string {
   const entries = Object.entries(props).slice(0, maxEntries);
   const formatted = entries.map(([k, v]) => {
     const valueStr = typeof v === 'string' ? `"${v}"` : String(v);
-    return `<span class="prop-name">${k}</span>=<span class="prop-value">${valueStr}</span>`;
+    // Escape both key and value to prevent XSS
+    return `<span class="prop-name">${escapeHtml(k)}</span>=<span class="prop-value">${escapeHtml(valueStr)}</span>`;
   }).join(' ');
 
   if (Object.keys(props).length > maxEntries) {

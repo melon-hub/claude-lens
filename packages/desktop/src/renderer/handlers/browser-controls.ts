@@ -131,7 +131,6 @@ export function setupViewportHandlers(): void {
   // Update browser bounds on window resize (ensures bounds update after maximize/restore)
   window.addEventListener('resize', debounce(() => {
     if (state.browserLoaded) {
-      console.log('[Viewport] Window resize detected, updating bounds');
       updateBrowserBounds();
     }
   }, 100));
@@ -140,7 +139,6 @@ export function setupViewportHandlers(): void {
   const browserPanel = document.querySelector('.browser-panel') as HTMLElement;
   const panelResizeObserver = new ResizeObserver(debounce(() => {
     if (state.browserLoaded) {
-      console.log('[Viewport] Panel resize detected, updating bounds');
       updateBrowserBounds();
     }
   }, 50));
@@ -148,10 +146,8 @@ export function setupViewportHandlers(): void {
 
   // Reset viewport to full width when starting a new project
   window.claudeLens.browser.onResetViewport(() => {
-    console.log('[Viewport] Received resetViewport, current viewportWidth:', state.viewportWidth);
     updateState({ viewportWidth: 0 });
     viewportSelect.value = 'full';
-    console.log('[Viewport] Reset to full width, calling updateBrowserBounds');
     updateBrowserBounds();
   });
 }

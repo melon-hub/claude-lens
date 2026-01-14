@@ -83,13 +83,13 @@ export function setupKeyboardShortcuts(): void {
     // Press F to freeze/unfreeze hover (works while hovering!)
     if ((e.key === 'f' || e.key === 'F') && !isTyping && state.browserLoaded) {
       e.preventDefault();
-      toggleFreezeHover();
+      toggleFreezeHover().catch(err => console.error('[Inspect] Freeze toggle failed:', err));
     }
 
     // Ctrl+R to reload browser page (always prevent to block Electron's window reload)
     if (e.ctrlKey && (e.key === 'r' || e.key === 'R') && !isTyping) {
       e.preventDefault();
-      window.claudeLens.browser.reload();
+      window.claudeLens.browser.reload().catch(err => console.error('[Browser] Reload failed:', err));
     }
   });
 }

@@ -1250,6 +1250,16 @@ ipcMain.handle('pty:resize', async (_event, cols: number, rows: number) => {
 ipcMain.handle('browser:navigate', async (_event, url: string) => {
   if (!mainWindow) return { success: false, error: 'Window not ready' };
 
+  // Validate URL protocol (security: prevent javascript:, file:, etc.)
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return { success: false, error: `Invalid protocol: ${parsed.protocol}. Only http and https are allowed.` };
+    }
+  } catch {
+    return { success: false, error: 'Invalid URL format' };
+  }
+
   try {
     // Create BrowserView if not exists
     if (!browserView) {

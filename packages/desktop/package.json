@@ -1,6 +1,6 @@
 {
   "name": "claude-lens-desktop",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Claude Lens Desktop - Seamless browser + Claude Code integration",
   "main": "dist/main/index.js",
   "scripts": {

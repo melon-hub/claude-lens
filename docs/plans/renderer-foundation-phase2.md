@@ -8,6 +8,37 @@
 
 ---
 
+## 📊 Current Progress (Updated 2026-01-13)
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| 2.1 State Migration | ✅ DONE | All state via `state.*` and `updateState()` |
+| 2.2 DOM Setup Module | ✅ DONE | Elements in `setup/` module |
+| 2.3 Event Handler Extraction | ✅ DONE | `ui-helpers.ts`, `browser-helpers.ts` created |
+| 2.4 Terminal Module | ✅ DONE | `terminal/manager.ts`, `terminal/context-menu.ts` |
+| 2.5 Panel Module | ✅ DONE | `panels/project-modal.ts`, `panels/resizers.ts`, `panels/console-drawer.ts`, `panels/context-panel.ts` |
+| 2.6 Integration & Cleanup | 🔄 IN PROGRESS | Target: < 500 lines |
+
+**Line count:** 2,237 → 1,297 (42% reduction)
+**Remaining:** ~800 lines to extract (UI update functions, event handlers)
+
+### Modules Created
+```
+packages/desktop/src/renderer/
+├── browser-helpers.ts      # updateBrowserBounds, setBrowserLoaded
+├── ui-helpers.ts           # setStatus, showThinking, hideThinking, updateStatusBar
+├── panels/
+│   ├── project-modal.ts    # Project detection dialog
+│   ├── resizers.ts         # Panel resize with localStorage
+│   ├── console-drawer.ts   # Console message display
+│   └── context-panel.ts    # Element selection & details UI
+└── terminal/
+    ├── manager.ts          # Terminal instance, fit/refresh helpers
+    └── context-menu.ts     # Right-click copy/paste menu
+```
+
+---
+
 ## Why This Matters
 
 Current state:
@@ -361,3 +392,11 @@ Run after EVERY phase:
 - Don't skip checkpoints - they catch issues early
 - If a phase takes > 2x estimate, stop and reassess
 - Keep the app working at all times - no "big bang" refactors
+
+---
+
+## Known Issues (Pre-existing)
+
+| Issue | Location | Description | Priority |
+|-------|----------|-------------|----------|
+| Terminal garbled during right-resizer drag | `panels/resizers.ts` | Right resizer (context↔terminal) doesn't call `fitAddon.fit()` during drag, only on mouseup. Terminal looks garbled until release. Fix: add `fitAddon.fit()` in the `else` branch of mousemove handler. | LOW |

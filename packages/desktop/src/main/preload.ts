@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('claudeLens', {
   // Embedded Browser APIs
   browser: {
     navigate: (url: string) => ipcRenderer.invoke('browser:navigate', url),
+    reload: () => ipcRenderer.invoke('browser:reload'),
     getURL: () => ipcRenderer.invoke('browser:getURL'),
     screenshot: () => ipcRenderer.invoke('browser:screenshot'),
     inspect: (x: number, y: number) => ipcRenderer.invoke('browser:inspect', x, y),

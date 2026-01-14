@@ -1,6 +1,6 @@
 {
   "name": "@claude-lens/core",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "Core library for Claude Lens - browser adapters, Claude adapters, inspection logic",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

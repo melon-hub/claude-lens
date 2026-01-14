@@ -5,6 +5,28 @@ All notable changes to Claude Lens will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-01-14
+
+### Changed
+- **Major renderer refactor** - main.ts reduced from 2,100 to 496 lines through modular extraction:
+  - Extracted state management to `state.ts` with typed accessors
+  - Created `browser-helpers.ts` for browser view operations
+  - Created `ui-helpers.ts` for status and UI utilities
+  - Split handlers into `handlers/browser-controls.ts`, `handlers/inspect.ts`, `handlers/navigation.ts`
+  - Created `panels/` module for panel-related UI components
+  - Extracted utilities to `utils/debounce.ts` and `utils/dom.ts`
+
+### Fixed
+- **XSS vulnerability in formatProps** - Now escapes HTML in property keys and values
+- **URL protocol validation** - browser:navigate handler now rejects non-http(s) URLs
+- **Missing error handlers** - Added `.catch()` to keyboard shortcut async calls
+
+### Added
+- **Context-formatter tests** - 47 new tests covering formatElementLean, formatElementDetailed, formatSequence, formatConsole, Tailwind translation, and key attribute extraction
+
+### Removed
+- Debug console.log statements from browser-helpers.ts and browser-controls.ts
+
 ## [0.2.1] - 2026-01-09
 
 ### Added

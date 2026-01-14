@@ -49,16 +49,11 @@ export class DevServerManager {
       await this.stop();
     }
 
-    // Check if port is already in use BEFORE starting
-    // This prevents the race condition where we think our server started
-    // but it's actually another process (like Claude Lens's own dev server)
-    if (await this.isPortOpen(port)) {
-      throw new Error(
-        `Port ${port} is already in use. ` +
-        `Another dev server or Claude Lens development instance may be running. ` +
-        `Please close it or use a different port.`
-      );
-    }
+    // Find an available port - auto-increment if the suggested port is busy
+    // This handles the common case where previous dev servers or Claude Lens instances
+    // left ports occupied, without requiring manual cleanup
+    const availablePort = await this.findAvailablePort(port);
+    port = availablePort;
 
     const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
 
@@ -419,6 +414,26 @@ export class DevServerManager {
 
       socket.connect(port, '127.0.0.1');
     });
+  }
+
+  /**
+   * Find an available port starting from the suggested port
+   * Increments by 1 until finding a free port, up to maxAttempts
+   */
+  private async findAvailablePort(startPort: number, maxAttempts: number = 100): Promise<number> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const port = startPort + attempt;
+      if (!(await this.isPortOpen(port))) {
+        if (attempt > 0) {
+          console.log(`[DevServer] Port ${startPort} in use, using port ${port} instead`);
+        }
+        return port;
+      }
+    }
+    throw new Error(
+      `No available ports found in range ${startPort}-${startPort + maxAttempts - 1}. ` +
+      `Please close some running dev servers or applications.`
+    );
   }
 
   /**

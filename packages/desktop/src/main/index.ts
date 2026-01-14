@@ -422,8 +422,8 @@ function createMenu(): void {
     {
       label: 'View',
       submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
+        // Note: 'reload' and 'forceReload' roles removed - they reload the entire app
+        // which kills Claude and the terminal. Use Ctrl+R for BrowserView reload instead.
         { role: 'toggleDevTools' },
         { type: 'separator' },
         { role: 'resetZoom' },
@@ -1250,6 +1250,16 @@ ipcMain.handle('pty:resize', async (_event, cols: number, rows: number) => {
 ipcMain.handle('browser:navigate', async (_event, url: string) => {
   if (!mainWindow) return { success: false, error: 'Window not ready' };
 
+  // Validate URL protocol (security: prevent javascript:, file:, etc.)
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return { success: false, error: `Invalid protocol: ${parsed.protocol}. Only http and https are allowed.` };
+    }
+  } catch {
+    return { success: false, error: 'Invalid URL format' };
+  }
+
   try {
     // Create BrowserView if not exists
     if (!browserView) {
@@ -1278,6 +1288,16 @@ ipcMain.handle('browser:navigate', async (_event, url: string) => {
     // Inject toast watcher (Phase 4)
     await injectToastWatcher();
 
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+});
+
+ipcMain.handle('browser:reload', async () => {
+  if (!browserView) return { success: false, error: 'No browser view' };
+  try {
+    browserView.webContents.reload();
     return { success: true };
   } catch (error) {
     return { success: false, error: String(error) };

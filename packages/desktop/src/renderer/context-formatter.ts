@@ -194,7 +194,7 @@ export function formatElement(el: ElementInfo, options: Partial<ContextOptions> 
 export function formatElements(elements: ElementInfo[], options: Partial<ContextOptions> = {}): string {
   if (elements.length === 0) return '';
 
-  if (elements.length === 1) {
+  if (elements.length === 1 && elements[0]) {
     return formatElement(elements[0], options);
   }
 
@@ -257,22 +257,22 @@ export function formatConsole(messages: Array<{ level: string; message: string }
  * Build concise element identity (tag + id or key class)
  */
 function buildElementIdentity(el: ElementInfo): string {
-  const parts: string[] = [`<${el.tagName}`];
+  let identity = `<${el.tagName}`;
 
   if (el.id) {
-    parts[0] += `#${el.id}`;
+    identity += `#${el.id}`;
   } else if (el.classes && el.classes.length > 0) {
     // Pick most meaningful class (skip utility classes)
     const meaningfulClass = el.classes.find(c =>
       !c.match(/^(flex|grid|block|hidden|p-|m-|w-|h-|text-|bg-|border-|rounded-)/)
     );
     if (meaningfulClass) {
-      parts[0] += `.${meaningfulClass}`;
+      identity += `.${meaningfulClass}`;
     }
   }
 
-  parts[0] += '>';
-  return parts[0];
+  identity += '>';
+  return identity;
 }
 
 /**
@@ -341,8 +341,9 @@ function translateTailwind(className: string): string {
 
   // Handle prefixed classes (hover:, dark:, sm:, etc.)
   const match = className.match(/^(hover:|focus:|dark:|sm:|md:|lg:)(.+)$/);
-  if (match && translations[match[2]]) {
-    return `${className}(${translations[match[2]]})`;
+  const baseClass = match?.[2];
+  if (baseClass && translations[baseClass]) {
+    return `${className}(${translations[baseClass]})`;
   }
 
   return className;

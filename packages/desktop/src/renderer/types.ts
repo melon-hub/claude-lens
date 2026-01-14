@@ -156,6 +156,7 @@ export interface ClaudeLensAPI {
   };
   browser: {
     navigate: (url: string) => Promise<{ success: boolean; error?: string }>;
+    reload: () => Promise<{ success: boolean; error?: string }>;
     getURL: () => Promise<string | null>;
     screenshot: () => Promise<string | null>;
     inspect: (x: number, y: number) => Promise<ElementInfo | null>;

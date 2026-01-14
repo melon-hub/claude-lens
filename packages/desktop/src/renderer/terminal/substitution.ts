@@ -27,7 +27,7 @@ export function substituteChars(data: string): string {
 
     // Find all occurrences of the indicator
     const regex = new RegExp(indicator + '\\s*(.{0,50})', 'g');
-    result = result.replace(regex, (match, afterIndicator) => {
+    result = result.replace(regex, (_match, afterIndicator) => {
       // Check each MCP tool pattern
       for (const tool of MCP_TOOL_ICONS) {
         if (tool.pattern.test(afterIndicator)) {
@@ -45,7 +45,7 @@ export function substituteChars(data: string): string {
   // Also do basic substitution for any remaining characters
   for (const [from, to] of Object.entries(CHAR_SUBSTITUTIONS)) {
     if (result.includes(from)) {
-      result = result.replaceAll(from, to);
+      result = result.split(from).join(to);
     }
   }
 

@@ -81,6 +81,7 @@ export function createBadge(text: string, type = 'default'): HTMLSpanElement {
  * Format position data for display
  */
 export function formatPosition(position: ElementInfo['position']): string {
+  if (!position) return 'unknown';
   return `${Math.round(position.x)}, ${Math.round(position.y)} | ${Math.round(position.width)}×${Math.round(position.height)}`;
 }
 

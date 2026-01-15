@@ -38,6 +38,7 @@ interface CDPClient {
       clip?: { x: number; y: number; width: number; height: number; scale: number };
     }): Promise<{ data: string }>;
     on(event: string, callback: (params: Record<string, unknown>) => void): void;
+    once(event: string, callback: (params: Record<string, unknown>) => void): void;
   };
   Runtime: {
     enable(): Promise<void>;
@@ -228,26 +229,15 @@ export class CDPAdapter implements BrowserAdapter {
       // Set up event listener BEFORE navigating to avoid race condition.
       // CDP events fire asynchronously - if we navigate first, the event
       // may fire before we start listening, causing us to wait forever.
+      // Use Page.once() to auto-remove listener after first fire.
       let eventPromise: Promise<void> | undefined;
       if (options.waitFor === 'load') {
         eventPromise = new Promise<void>((resolve) => {
-          let resolved = false;
-          Page.on('loadEventFired', () => {
-            if (!resolved) {
-              resolved = true;
-              resolve();
-            }
-          });
+          Page.once('loadEventFired', () => resolve());
         });
       } else if (options.waitFor === 'domcontentloaded') {
         eventPromise = new Promise<void>((resolve) => {
-          let resolved = false;
-          Page.on('domContentEventFired', () => {
-            if (!resolved) {
-              resolved = true;
-              resolve();
-            }
-          });
+          Page.once('domContentEventFired', () => resolve());
         });
       }
 

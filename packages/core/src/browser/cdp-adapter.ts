@@ -285,6 +285,7 @@ export class CDPAdapter implements BrowserAdapter {
 
   /**
    * Detect React/Vue/Svelte/Angular component info for an element
+   * Note: x, y are document coordinates from getBoxModel, converted to viewport coords internally
    */
   private async detectFramework(x: number, y: number): Promise<FrameworkInfo | undefined> {
     if (!this.client) return undefined;
@@ -292,7 +293,11 @@ export class CDPAdapter implements BrowserAdapter {
     const result = await this.client.Runtime.evaluate({
       expression: `
         (function() {
-          const el = document.elementFromPoint(${x}, ${y});
+          const docX = ${x};
+          const docY = ${y};
+          const viewportX = docX - (window.scrollX || window.pageXOffset || 0);
+          const viewportY = docY - (window.scrollY || window.pageYOffset || 0);
+          const el = document.elementFromPoint(viewportX, viewportY);
           if (!el) return null;
 
           // Detect React
@@ -417,10 +422,16 @@ export class CDPAdapter implements BrowserAdapter {
     const { outerHTML } = await DOM.getOuterHTML({ nodeId });
 
     // Generate unique selector
+    // Note: content[0], content[1] are document coordinates from getBoxModel,
+    // but elementFromPoint expects viewport coordinates. Convert by subtracting scroll offset.
     const selectorResult = await Runtime.evaluate({
       expression: `
         (function() {
-          const el = document.elementFromPoint(${content[0]}, ${content[1]});
+          const docX = ${content[0]};
+          const docY = ${content[1]};
+          const viewportX = docX - (window.scrollX || window.pageXOffset || 0);
+          const viewportY = docY - (window.scrollY || window.pageYOffset || 0);
+          const el = document.elementFromPoint(viewportX, viewportY);
           if (!el) return '';
           const path = [];
           let current = el;
@@ -648,16 +659,25 @@ export class CDPAdapter implements BrowserAdapter {
     if (!this.client) throw new Error('Not connected');
 
     const { clearFirst = false, delay = 0 } = options;
+    const escapedSelector = selector.replace(/'/g, "\\'");
+
+    // Verify element exists before typing (prevents typing into wrong element)
+    const existsResult = await this.client.Runtime.evaluate({
+      expression: `!!document.querySelector('${escapedSelector}')`,
+    });
+    if (!existsResult.result.value) {
+      throw new Error(`Element not found: ${selector}`);
+    }
 
     // Focus element
     await this.client.Runtime.evaluate({
-      expression: `document.querySelector('${selector.replace(/'/g, "\\'")}')?.focus()`,
+      expression: `document.querySelector('${escapedSelector}').focus()`,
     });
 
     // Clear if requested
     if (clearFirst) {
       await this.client.Runtime.evaluate({
-        expression: `document.querySelector('${selector.replace(/'/g, "\\'")}').value = ''`,
+        expression: `document.querySelector('${escapedSelector}').value = ''`,
       });
     }
 

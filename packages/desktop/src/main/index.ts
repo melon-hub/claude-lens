@@ -19,7 +19,7 @@ const execFileAsync = promisify(execFile);
 import * as pty from 'node-pty';
 import { PtyManager } from './pty-manager';
 import { startMCPServer, stopMCPServer, setBrowserView, setConsoleBuffer } from './mcp-server';
-import { BridgeServer, CircularBuffer, debounce } from '@claude-lens/core';
+import { BridgeServer, CircularBuffer, debounce, isAllowedUrl } from '@claude-lens/core';
 import { createPlaywrightBridgeHandler } from './playwright-handler.js';
 import { PlaywrightAdapter, getCDPPort } from './playwright-adapter.js';
 import { analyzeProject, ProjectInfo, detectPackageManager, checkDependencyHealth } from './project-manager';
@@ -87,8 +87,41 @@ let staticServer: StaticServer | null = null;
 const componentSourceCache = new Map<string, { fileName: string; lineNumber: number } | null>();
 
 /**
+ * Recursively find all source files in a directory (cross-platform, no grep dependency)
+ */
+async function findSourceFiles(dir: string, extensions: string[]): Promise<string[]> {
+  const results: string[] = [];
+
+  try {
+    const entries = await fsPromises.readdir(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+
+      // Skip common non-source directories
+      if (entry.isDirectory()) {
+        if (['node_modules', 'dist', 'build', '.git', '.next', 'coverage'].includes(entry.name)) {
+          continue;
+        }
+        const subFiles = await findSourceFiles(fullPath, extensions);
+        results.push(...subFiles);
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (extensions.includes(ext)) {
+          results.push(fullPath);
+        }
+      }
+    }
+  } catch {
+    // Directory doesn't exist or not accessible
+  }
+
+  return results;
+}
+
+/**
  * Search for a component definition in the project source files.
- * Uses grep to find function/const/class declarations.
+ * Cross-platform implementation using Node.js fs (works on Windows, macOS, Linux).
  * Results are cached for instant subsequent lookups.
  */
 async function findComponentSource(componentName: string): Promise<{ fileName: string; lineNumber: number } | null> {
@@ -110,51 +143,48 @@ async function findComponentSource(componentName: string): Promise<{ fileName: s
   try {
     const projectPath = currentProject.path;
 
-    // Search patterns for component definitions
+    // Search patterns for component definitions (JavaScript RegExp)
     const patterns = [
-      `function ${componentName}\\b`,
-      `const ${componentName}\\s*=`,
-      `let ${componentName}\\s*=`,
-      `class ${componentName}\\b`,
+      new RegExp(`function\\s+${componentName}\\b`),
+      new RegExp(`const\\s+${componentName}\\s*=`),
+      new RegExp(`let\\s+${componentName}\\s*=`),
+      new RegExp(`class\\s+${componentName}\\b`),
+      new RegExp(`export\\s+default\\s+function\\s+${componentName}\\b`),
+      new RegExp(`export\\s+function\\s+${componentName}\\b`),
     ];
-
-    const grepPattern = patterns.join('\\|');
 
     // Search in common source directories
     const searchPaths = ['src', 'app', 'components', 'lib', '.'];
+    const extensions = ['.tsx', '.jsx', '.ts', '.js'];
 
     for (const searchPath of searchPaths) {
       const fullSearchPath = path.join(projectPath, searchPath);
-      if (!fs.existsSync(fullSearchPath)) continue;
 
-      try {
-        // Use execFile with array args (safe from injection)
-        const { stdout } = await execFileAsync('grep', [
-          '-rn',
-          '--include=*.tsx',
-          '--include=*.jsx',
-          '--include=*.ts',
-          '--include=*.js',
-          grepPattern,
-          fullSearchPath
-        ], { timeout: 5000, maxBuffer: 1024 * 1024 });
-
-        const firstLine = stdout.split('\n')[0]?.trim();
-        if (firstLine) {
-          // Parse grep output: /path/to/file.tsx:42:const ComponentName = ...
-          const match = firstLine.match(/^(.+?):(\d+):/);
-          if (match) {
-            const [, filePath, lineNum] = match;
-            const relativePath = path.relative(projectPath, filePath);
-            const source = { fileName: relativePath, lineNumber: parseInt(lineNum, 10) };
-            componentSourceCache.set(componentName, source);
-            console.log(`[ComponentSearch] Found ${componentName} at ${relativePath}:${lineNum}`);
-            return source;
-          }
-        }
-      } catch {
-        // grep returns exit code 1 if no matches, continue to next path
+      // Skip if searchPath is '.' and we're about to search project root (avoid duplicates)
+      if (searchPath === '.' && searchPaths.slice(0, -1).some(p => fs.existsSync(path.join(projectPath, p)))) {
         continue;
+      }
+
+      const files = await findSourceFiles(fullSearchPath, extensions);
+
+      for (const filePath of files) {
+        try {
+          const content = await fsPromises.readFile(filePath, 'utf-8');
+          const lines = content.split('\n');
+
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (patterns.some(pattern => pattern.test(line))) {
+              const relativePath = path.relative(projectPath, filePath);
+              const source = { fileName: relativePath, lineNumber: i + 1 };
+              componentSourceCache.set(componentName, source);
+              console.log(`[ComponentSearch] Found ${componentName} at ${relativePath}:${i + 1}`);
+              return source;
+            }
+          }
+        } catch {
+          // File read error, skip
+        }
       }
     }
 
@@ -1218,14 +1248,12 @@ ipcMain.handle('pty:resize', async (_event, cols: number, rows: number) => {
 ipcMain.handle('browser:navigate', async (_event, url: string) => {
   if (!mainWindow) return { success: false, error: 'Window not ready' };
 
-  // Validate URL protocol (security: prevent javascript:, file:, etc.)
-  try {
-    const parsed = new URL(url);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return { success: false, error: `Invalid protocol: ${parsed.protocol}. Only http and https are allowed.` };
-    }
-  } catch {
-    return { success: false, error: 'Invalid URL format' };
+  // Validate URL is localhost-only (consistent with MCP server security policy)
+  if (!isAllowedUrl(url)) {
+    return {
+      success: false,
+      error: 'Only localhost URLs are allowed for security. Use http://localhost:PORT or http://127.0.0.1:PORT'
+    };
   }
 
   try {

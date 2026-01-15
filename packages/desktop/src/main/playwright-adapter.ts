@@ -196,10 +196,11 @@ export class PlaywrightAdapter {
     }
 
     try {
-      // Don't close browser - it's Electron's browser, we're just disconnecting
+      // For CDP connections, browser.close() disconnects the session without killing Electron's browser.
+      // This is the correct way to clean up the Playwright connection.
       if (this.browser) {
         await this.browser.close().catch((err) => {
-          console.debug('[PlaywrightAdapter] Browser close warning:', err.message);
+          console.debug('[PlaywrightAdapter] Browser disconnect warning:', err.message);
         });
       }
     } catch (error) {

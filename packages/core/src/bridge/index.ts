@@ -118,9 +118,17 @@ export class BridgeServer {
     return new Promise((resolve, reject) => {
       this.server = http.createServer(async (req, res) => {
         // CORS headers - restricted to localhost only
+        // Use URL parsing to prevent bypass via localhost.evil.com
         const origin = req.headers.origin;
-        if (origin && (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1'))) {
-          res.setHeader('Access-Control-Allow-Origin', origin);
+        if (origin) {
+          try {
+            const url = new URL(origin);
+            if (['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
+              res.setHeader('Access-Control-Allow-Origin', origin);
+            }
+          } catch {
+            // Invalid URL, don't set CORS header
+          }
         }
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');

@@ -225,12 +225,36 @@ export class CDPAdapter implements BrowserAdapter {
     const startTime = Date.now();
 
     const navigateImpl = async (): Promise<NavigateResult> => {
+      // Set up event listener BEFORE navigating to avoid race condition.
+      // CDP events fire asynchronously - if we navigate first, the event
+      // may fire before we start listening, causing us to wait forever.
+      let eventPromise: Promise<void> | undefined;
+      if (options.waitFor === 'load') {
+        eventPromise = new Promise<void>((resolve) => {
+          let resolved = false;
+          Page.on('loadEventFired', () => {
+            if (!resolved) {
+              resolved = true;
+              resolve();
+            }
+          });
+        });
+      } else if (options.waitFor === 'domcontentloaded') {
+        eventPromise = new Promise<void>((resolve) => {
+          let resolved = false;
+          Page.on('domContentEventFired', () => {
+            if (!resolved) {
+              resolved = true;
+              resolve();
+            }
+          });
+        });
+      }
+
       await Page.navigate({ url });
 
-      if (options.waitFor === 'load') {
-        await Page.loadEventFired();
-      } else if (options.waitFor === 'domcontentloaded') {
-        await Page.domContentEventFired();
+      if (eventPromise) {
+        await eventPromise;
       }
 
       const { root } = await this.client!.DOM.getDocument();

@@ -1,11 +1,11 @@
-import { describe, expect, test, mock } from 'bun:test';
+import { describe, expect, test, vi } from 'vitest';
 import { debounce, throttle } from '../index';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 describe('debounce', () => {
   test('delays function execution', async () => {
-    const fn = mock(() => {});
+    const fn = vi.fn(() => {});
     const debounced = debounce(fn, 50);
 
     debounced();
@@ -16,7 +16,7 @@ describe('debounce', () => {
   });
 
   test('resets timer on subsequent calls', async () => {
-    const fn = mock(() => {});
+    const fn = vi.fn(() => {});
     const debounced = debounce(fn, 50);
 
     debounced();
@@ -30,7 +30,7 @@ describe('debounce', () => {
   });
 
   test('only calls once after rapid calls', async () => {
-    const fn = mock(() => {});
+    const fn = vi.fn(() => {});
     const debounced = debounce(fn, 50);
 
     debounced();
@@ -44,7 +44,7 @@ describe('debounce', () => {
   });
 
   test('passes arguments to function', async () => {
-    const fn = mock((_a: number, _b: string) => {});
+    const fn = vi.fn((_a: number, _b: string) => {});
     const debounced = debounce(fn, 50);
 
     debounced(42, 'hello');
@@ -54,7 +54,7 @@ describe('debounce', () => {
   });
 
   test('uses latest arguments', async () => {
-    const fn = mock((_value: number) => {});
+    const fn = vi.fn((_value: number) => {});
     const debounced = debounce(fn, 50);
 
     debounced(1);
@@ -68,7 +68,7 @@ describe('debounce', () => {
 
 describe('throttle', () => {
   test('calls immediately on first invocation', () => {
-    const fn = mock(() => {});
+    const fn = vi.fn(() => {});
     const throttled = throttle(fn, 50);
 
     throttled();
@@ -76,7 +76,7 @@ describe('throttle', () => {
   });
 
   test('ignores calls within wait period', async () => {
-    const fn = mock(() => {});
+    const fn = vi.fn(() => {});
     const throttled = throttle(fn, 50);
 
     throttled(); // Immediate
@@ -91,7 +91,7 @@ describe('throttle', () => {
   });
 
   test('allows call after wait period', async () => {
-    const fn = mock(() => {});
+    const fn = vi.fn(() => {});
     const throttled = throttle(fn, 50);
 
     throttled();
@@ -104,7 +104,7 @@ describe('throttle', () => {
   });
 
   test('passes arguments to function', () => {
-    const fn = mock((_a: number, _b: string) => {});
+    const fn = vi.fn((_a: number, _b: string) => {});
     const throttled = throttle(fn, 50);
 
     throttled(42, 'hello');
@@ -112,7 +112,7 @@ describe('throttle', () => {
   });
 
   test('trailing call uses first scheduled arguments', async () => {
-    const fn = mock((_value: number) => {});
+    const fn = vi.fn((_value: number) => {});
     const throttled = throttle(fn, 50);
 
     throttled(1); // Immediate call with 1
@@ -125,7 +125,7 @@ describe('throttle', () => {
   });
 
   test('rate limits rapid calls', async () => {
-    const fn = mock(() => {});
+    const fn = vi.fn(() => {});
     const throttled = throttle(fn, 100);
 
     throttled();

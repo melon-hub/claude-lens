@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { redactSecrets, containsSecrets, addSecretPattern } from './secret-redactor.js';
 
 describe('secret-redactor', () => {

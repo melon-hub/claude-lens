@@ -8,7 +8,7 @@
  * This is intentional - we're testing string templates that get injected via page.evaluate().
  * The code evaluated is our own helper code, not user input.
  */
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach } from 'vitest';
 import { Window } from 'happy-dom';
 
 // Create a fresh DOM environment for each test
